@@ -114,7 +114,8 @@ def _math(nt, op, a, b=None, loc=(0, 0), clamp=False, name=None):
 def accent_threshold(albedo, hull_id=None):
     """Per-hull saturation cut for the accent mask: the boldest
     ACCENT_TARGET_COVERAGE of the source texels, never below ACCENT_SAT_FLOOR."""
-    target = C.ACCENT_OVERRIDES.get(hull_id, {}).get("target", C.ACCENT_TARGET_COVERAGE)
+    target = C.ACCENT_OVERRIDES.get(hull_id, {}).get("target",
+             C.finish_opts(hull_id)["accentTarget"])
     w, h = albedo.size
     a = np.empty(w * h * 4, dtype=np.float32)
     albedo.pixels.foreach_get(a)
@@ -159,9 +160,11 @@ def stripe_band(nt, sep_z, loc, width=None):
     return out
 
 
-def hull_design_material(albedo_img, sat_cut, band_width=None):
+def hull_design_material(albedo_img, sat_cut, band_width=None, opts=None):
     """Vendor albedo -> neutral service livery + accent mask (the mask lands in
-    the basecolor ALPHA channel at bake time)."""
+    the basecolor ALPHA channel at bake time). `opts` carries the per-build
+    palette/metal overrides (a raider is dark and matte, not service grey)."""
+    o = opts or {}
     mat = bpy.data.materials.new("hull_design")
     nt = _nt(mat)
     out = nt.nodes.new("ShaderNodeOutputMaterial")
@@ -198,12 +201,13 @@ def hull_design_material(albedo_img, sat_cut, band_width=None):
     ramp = nt.nodes.new("ShaderNodeValToRGB")
     ramp.location = (-820, 400)
     ramp.color_ramp.elements[0].position = 0.06
-    ramp.color_ramp.elements[0].color = _srgb_lin(0x8D939C)
+    ramp.color_ramp.elements[0].color = _srgb_lin(o.get("gunmetal", 0x8D939C))
     ramp.color_ramp.elements[1].position = 0.62
-    ramp.color_ramp.elements[1].color = _srgb_lin(C.BONE[0] << 16 | C.BONE[1] << 8 | C.BONE[2])
+    ramp.color_ramp.elements[1].color = _srgb_lin(o.get("bone", C.BONE[0] << 16 | C.BONE[1] << 8 | C.BONE[2]))
     nt.links.new(lum, ramp.inputs["Fac"])
 
-    livery = _mix(nt, C.LIVERY_SATURATION, ramp.outputs["Color"], src, loc=(-520, 300))
+    livery = _mix(nt, o.get("liverySat", C.LIVERY_SATURATION), ramp.outputs["Color"], src,
+                  loc=(-520, 300))
     accent_rgb = _mix(nt, C.ACCENT_RECOLOR_SAT, ramp.outputs["Color"], src, loc=(-520, 120))
     mask = nt.nodes.new("ShaderNodeMapRange")
     mask.name = "satMask"
@@ -226,13 +230,14 @@ def hull_design_material(albedo_img, sat_cut, band_width=None):
     metal.clamp = True
     metal.inputs["From Min"].default_value = 0.0
     metal.inputs["From Max"].default_value = 1.0
-    metal.inputs["To Min"].default_value = C.HULL_METALLIC
-    metal.inputs["To Max"].default_value = C.ACCENT_METALLIC
+    metal.inputs["To Min"].default_value = o.get("metal", C.HULL_METALLIC)
+    metal.inputs["To Max"].default_value = o.get("accentMetal", C.ACCENT_METALLIC)
     nt.links.new(mask.outputs["Result"], metal.inputs["Value"])
     nt.links.new(metal.outputs["Result"], bsdf.inputs["Metallic"])
 
     bump_normal(nt, bsdf)
-    bsdf.inputs["Roughness"].default_value = (C.WEAR_ROUGH_LO + C.WEAR_ROUGH_HI) * 0.5
+    bsdf.inputs["Roughness"].default_value = (o.get("roughLo", C.WEAR_ROUGH_LO)
+                                             + o.get("roughHi", C.WEAR_ROUGH_HI)) * 0.5
     bsdf.inputs["Emission Color"].default_value = (0.0, 0.0, 0.0, 1.0)
     bsdf.inputs["Emission Strength"].default_value = 0.0
     mat["mask_socket"] = "sat"
@@ -293,14 +298,14 @@ def bump_normal(nt, bsdf):
     return bump
 
 
-def engine_dark_material():
+def engine_dark_material(dark_hex=None):
     """The nozzle interior: near-black, no emission (the rim carries the glow)."""
     mat = bpy.data.materials.new("engine_dark_design")
     nt = _nt(mat)
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
-    bsdf.inputs["Base Color"].default_value = _srgb_lin(C.EMISSIVE_INTERIOR_HEX)
+    bsdf.inputs["Base Color"].default_value = _srgb_lin(dark_hex or C.EMISSIVE_INTERIOR_HEX)
     bsdf.inputs["Metallic"].default_value = 0.30
     bsdf.inputs["Roughness"].default_value = 0.55
     bsdf.inputs["Emission Strength"].default_value = 0.0
@@ -576,11 +581,12 @@ def build(hull_id):
     glow_faces = ring_faces(hull, islands, engine_faces, C.EMISSIVE_RING_INNER)
 
     # materials: 0 = hull design, 1 = engine glow design
-    band_width = C.ACCENT_OVERRIDES.get(hull_id, {}).get("band")
+    opts = C.finish_opts(hull_id)
+    band_width = C.ACCENT_OVERRIDES.get(hull_id, {}).get("band", opts["accentBand"])
     sat_cut, sat_cover = accent_threshold(albedo, hull_id)
-    hmat = hull_design_material(albedo, sat_cut, band_width)
-    emat = engine_design_material(C.ENGINE_GLOW_HEX)
-    dmat = engine_dark_material()
+    hmat = hull_design_material(albedo, sat_cut, band_width, opts)
+    emat = engine_design_material(opts["glow"])
+    dmat = engine_dark_material(opts["dark"])
     hull.data.materials.clear()
     for m in (hmat, emat, dmat):
         hull.data.materials.append(m)
@@ -619,6 +625,7 @@ def build(hull_id):
     assert (ext - expected).length <= limit * 2, \
         f"{hull_id}: hull extents drifted to {tuple(round(v, 2) for v in ext)}"
     meta.update({
+        "vendorHull": C.source_hull(hull_id),
         "extentsFinished": [round(v, 3) for v in ext],
         "greebles": greebles,
         "engineFaces": len(engine_faces),
@@ -640,7 +647,7 @@ def build(hull_id):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    for hull_id in (argv or C.FLEET):
+    for hull_id in (argv or C.BUILD_ORDER):
         meta = build(hull_id)
         print(f">>> {hull_id}: tris={meta['trisFinished']} greebles={meta['greebles']['greebles']}"
               f"/{meta['greebles']['candidates']} engineFaces={meta['engineFaces']}"

@@ -178,7 +178,7 @@ def build(hull_id):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    for hull_id in (argv or C.FLEET):
+    for hull_id in (argv or C.BUILD_ORDER):
         meta = build(hull_id)
         print(f">>> {hull_id}: {meta['tris']} tris  span={meta['spanX']} "
               f"up={meta['upY']} length={meta['lengthZ']} L/S={meta['lengthSpanRatio']} "

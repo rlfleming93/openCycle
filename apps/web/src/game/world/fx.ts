@@ -243,7 +243,11 @@ export class Fx {
   ): void {
     this.elapsedS += dtS;
     for (const event of frame.events) {
-      if (event.kind === 'legComplete' && event.clean) this.launchProbe(event.riderId, fleet, destination);
+      // Survey probe on clean cruise/climb legs; a clean burn's payoff is the
+      // raider going down instead.
+      if (event.kind === 'legComplete' && event.clean && event.legKind !== 'burn') {
+        this.launchProbe(event.riderId, fleet, destination);
+      }
       if (event.kind === 'beacon') this.fireBeacon(event.streakS, fleet, route, frame);
     }
 

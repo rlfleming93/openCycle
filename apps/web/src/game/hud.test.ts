@@ -6,6 +6,8 @@ import {
   fmtClock,
   honorRoll,
   legLabel,
+  legLockFraction,
+  legLockLabel,
   legObjective,
   legOnTargetPct,
   legRemainingS,
@@ -177,16 +179,28 @@ describe('arrivalChip', () => {
 });
 
 describe('legToast', () => {
-  it('locks the survey on a clean leg', () => {
+  it('brings the raider down on a clean burn', () => {
     expect(
       legToast({ legKind: 'burn', leg: leg(), clean: true, targetedS: 55, onTargetS: 55 }, null),
-    ).toEqual({ text: 'BURN 1/4 COMPLETE · SURVEY LOCKED', tone: 'on' });
+    ).toEqual({ text: 'BURN 1/4 COMPLETE · RAIDER DOWN · SURVEY LOCKED', tone: 'on' });
   });
 
-  it('reports the on-target share on an unclean leg', () => {
+  it('lets the raider escape on an unclean burn', () => {
     expect(
       legToast({ legKind: 'burn', leg: leg(), clean: false, targetedS: 55, onTargetS: 40 }, null),
-    ).toEqual({ text: 'BURN 1/4 COMPLETE · 73% ON TARGET', tone: 'neutral' });
+    ).toEqual({ text: 'BURN 1/4 COMPLETE · RAIDER ESCAPED · 73% ON TARGET', tone: 'neutral' });
+  });
+
+  it('keeps the plain copy on a clean non-burn leg', () => {
+    expect(
+      legToast({ legKind: 'cruise', leg: null, clean: true, targetedS: 600, onTargetS: 600 }, null),
+    ).toEqual({ text: 'CRUISE COMPLETE · SURVEY LOCKED', tone: 'on' });
+  });
+
+  it('keeps the plain copy on an unclean non-burn leg', () => {
+    expect(
+      legToast({ legKind: 'climb', leg: null, clean: false, targetedS: 120, onTargetS: 60 }, null),
+    ).toEqual({ text: 'CLIMB COMPLETE · 50% ON TARGET', tone: 'neutral' });
   });
 
   it('prefixes the rider name in multi-rider sessions', () => {
@@ -195,10 +209,42 @@ describe('legToast', () => {
     ).toEqual({ text: 'Rider Two · CRUISE COMPLETE · SURVEY LOCKED', tone: 'on' });
   });
 
+  it('prefixes the rider name on a pursuit too', () => {
+    expect(
+      legToast({ legKind: 'burn', leg: leg(), clean: false, targetedS: 55, onTargetS: 40 }, 'Rider Two'),
+    ).toEqual({ text: 'Rider Two · BURN 1/4 COMPLETE · RAIDER ESCAPED · 73% ON TARGET', tone: 'neutral' });
+  });
+
   it('reports 0% when the leg never targeted', () => {
     expect(
       legToast({ legKind: 'coast', leg: null, clean: false, targetedS: 0, onTargetS: 0 }, null).text,
     ).toBe('COAST COMPLETE · 0% ON TARGET');
+  });
+});
+
+describe('legLockLabel', () => {
+  it('rounds the lock share', () => {
+    expect(legLockLabel(55, 55)).toBe('LOCK 100%');
+    expect(legLockLabel(120, 86)).toBe('LOCK 72%');
+    expect(legLockLabel(120, 119)).toBe('LOCK 99%');
+  });
+
+  it('reads as a dash until the leg has enough targeted seconds', () => {
+    expect(legLockLabel(0, 0)).toBe('LOCK —');
+    expect(legLockLabel(4.9, 4.9)).toBe('LOCK —');
+    expect(legLockLabel(5, 2)).toBe('LOCK 40%');
+  });
+});
+
+describe('legLockFraction', () => {
+  it('is the raw on-target share once the lock reads', () => {
+    expect(legLockFraction(120, 86)).toBeCloseTo(0.7167, 3);
+    expect(legLockFraction(60, 60)).toBe(1);
+  });
+
+  it('is 0 while the lock is still a dash, and clamps above 1', () => {
+    expect(legLockFraction(4, 4)).toBe(0);
+    expect(legLockFraction(60, 90)).toBe(1);
   });
 });
 

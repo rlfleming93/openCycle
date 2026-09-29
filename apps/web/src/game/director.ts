@@ -39,10 +39,16 @@ export interface RiderVis {
   guardActive: boolean;
   /** Step intensity in %FTP (target-based); 65 for free ride. */
   zonePct: number;
+  /**
+   * Trigger discipline for the pursuit: riding with a live sample, no ERG guard
+   * and power inside 0.9-1.1x target. Only these ships fire.
+   */
+  inBand: boolean;
 }
 
 export type GameEvent =
   | { kind: 'legComplete'; riderId: string; clean: boolean; legKind: LegKind }
+  | { kind: 'raider'; outcome: 'down' | 'escaped'; legIndex: number }
   | { kind: 'beacon'; streakS: number }
   | { kind: 'arrival'; finishers: number }
   | { kind: 'guard'; riderId: string; engaged: boolean };
@@ -70,6 +76,8 @@ export interface GameFrame {
   surveys: { total: number; revealed: number };
   /** Current leg kind of the lead rider (else rider 0); null without a workout. */
   legKind: LegKind | null;
+  /** Current leg index of the lead rider; null without a workout. */
+  legIndex: number | null;
   /** True while a bothInZone event occurred within the last 35 s AND at least
    *  one rider still has an active numeric target. */
   syncLit: boolean;
@@ -79,6 +87,18 @@ export interface GameFrame {
   seed: string;
   /** Active shield vis, or null when no rescue is covering the ship. */
   rescue: RescueVis | null;
+  /**
+   * Pursuit state for the lead rider's burn legs: null without a destination
+   * or whenever the lead is not burning. `lock` is the lead's on-target
+   * fraction (0 until the leg has at least LEG_SETTLE-ish 5 s targeted).
+   */
+  pursuit: { active: boolean; legIndex: number; lock: number } | null;
+  /**
+   * Seconds on the lead rider's workout (mission) clock, else the lead's
+   * elapsed riding time; null without a session. The world plays the
+   * session-start frame shift jump while this is under ~10 s.
+   */
+  sessionAgeS: number | null;
 }
 
 const RATIO_TAU_S = 2;
@@ -90,6 +110,11 @@ const CRUISE_DEADBAND_HIGH = 1.1;
 const FREE_RIDE_FRACTION = 0.65;
 const CADENCE_STOP_RPM = 5;
 const MAX_DT_S = 0.5; // clamp render-gap dt so a suspended tab doesn't snap smoothing
+/** Trigger discipline window (power / target) for the pursuit. */
+const IN_BAND_LOW = 0.9;
+const IN_BAND_HIGH = 1.1;
+/** Lock meter stays 0 until the leg has this much targeted time. */
+const LOCK_MIN_TARGETED_S = 5;
 const RESCUE_MAX_HOLD_MS = 90_000;
 
 /** Cruise factor from a smoothed ratio; dead stop only at cadence ≈ 0. */
@@ -229,6 +254,7 @@ export function createGameDirector(getState: () => AppState): GameDirector {
           state: r.state,
           guardActive: r.ergGuardActive,
           zonePct: 0,
+          inBand: false,
         };
         visById.set(r.riderId, vis);
       }
@@ -252,6 +278,14 @@ export function createGameDirector(getState: () => AppState): GameDirector {
       vis.state = r.state;
       vis.guardActive = r.ergGuardActive;
       vis.zonePct = zonePct;
+      vis.inBand =
+        r.state === 'riding' &&
+        latest !== undefined &&
+        !r.ergGuardActive &&
+        target !== null &&
+        target > 0 &&
+        ratio >= IN_BAND_LOW &&
+        ratio <= IN_BAND_HIGH;
       riders[i] = vis;
       if (r.state === 'riding') {
         ridingCount++;
@@ -275,6 +309,9 @@ export function createGameDirector(getState: () => AppState): GameDirector {
     lastWeather = weather;
 
     const shipSpeed = ridingCount > 0 ? cruiseSum / ridingCount : 0;
+
+    // The pursuit's lead: the destination's lead rider, else rider 0.
+    const leadRiderId = session?.destination?.leadRiderId ?? session?.riders[0]?.riderId ?? null;
 
     // Drain new events (cursor-based; see module doc).
     const events: GameEvent[] = [];
@@ -300,6 +337,12 @@ export function createGameDirector(getState: () => AppState): GameDirector {
           // flown, not graded) and never produce a HUD toast.
           if (ev.objective) {
             events.push({ kind: 'legComplete', riderId: ev.riderId, clean: ev.clean, legKind: ev.legKind });
+          }
+          // A burn leg ends with the raider either destroyed or away: only the
+          // LEAD rider's burn legs run a pursuit (and only on a voyage), so only
+          // those resolve it.
+          if (ev.legKind === 'burn' && ev.riderId === leadRiderId && session?.destination != null) {
+            events.push({ kind: 'raider', outcome: ev.clean ? 'down' : 'escaped', legIndex: ev.legIndex });
           }
           break;
         case 'workoutCompleted':
@@ -377,6 +420,18 @@ export function createGameDirector(getState: () => AppState): GameDirector {
     const lead = destination === null ? snapshot[0] : snapshot.find((r) => r.riderId === destination.leadRiderId);
     const legIndex = lead?.legIndex ?? null;
     const legKind = lead?.legs !== undefined && lead?.legs !== null && legIndex !== null ? (lead.legs[legIndex]?.kind ?? null) : null;
+    // Pursuit runs on the lead's burn legs only, and only on a voyage.
+    const pursuit =
+      destination !== null && legKind === 'burn' && legIndex !== null
+        ? {
+            active: true,
+            legIndex,
+            lock:
+              lead !== undefined && lead.legTargetedS >= LOCK_MIN_TARGETED_S
+                ? Math.min(1, Math.max(0, lead.legOnTargetS / lead.legTargetedS))
+                : 0,
+          }
+        : null;
 
     return {
       riders,
@@ -386,10 +441,13 @@ export function createGameDirector(getState: () => AppState): GameDirector {
       destination,
       surveys: surveyTotals(session),
       legKind,
+      legIndex,
       syncLit,
       events,
       seed,
       rescue: rescueVis,
+      pursuit,
+      sessionAgeS: lead === undefined ? null : (lead.workoutClockS ?? lead.elapsedS),
     };
   };
 

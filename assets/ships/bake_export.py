@@ -409,8 +409,9 @@ def build(hull_id):
     # ORM: R=AO (crevices only, floored), G=roughness, B=metal
     ao = np.clip(quantize(box_blur(ao, passes=2), 1 / 12), C.AO_FLOOR, 1.0)
     # the plan's roughness band has to span the AO range that survives the floor
+    opts = C.finish_opts(hull_id)
     wear = np.clip((ao - C.AO_FLOOR) / max(1e-6, 1.0 - C.AO_FLOOR), 0.0, 1.0)
-    rough = C.WEAR_ROUGH_HI - (C.WEAR_ROUGH_HI - C.WEAR_ROUGH_LO) * wear
+    rough = opts["roughHi"] - (opts["roughHi"] - opts["roughLo"]) * wear
     rough = np.where(em[:, :, :3].max(axis=2) > 0.02, 0.22, rough)
     rough = np.where(mask > 0.5, np.maximum(rough, 0.45), rough)
     rough = quantize(rough, 1 / 16)
@@ -467,7 +468,7 @@ def build(hull_id):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    for hull_id in (argv or C.FLEET):
+    for hull_id in (argv or C.BUILD_ORDER):
         r = build(hull_id)
         print(f">>> {hull_id}: {r['bytes'] / 1024:.0f} KB {r['tris']} tris")
 

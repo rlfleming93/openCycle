@@ -39,6 +39,42 @@ float ocFbm(vec3 p, float octaves) {
 `;
 
 /**
+ * Blackbody colour: the Planckian locus (Kim et al. 2002) taken to linear sRGB
+ * with luminance 1, for 1667-25000 K. Stars, the accretion disk and the key
+ * light all read their colour from temperature through this one curve.
+ */
+export const BLACKBODY_GLSL = /* glsl */ `
+vec3 ocBlackbody(float kelvin) {
+  float T = clamp(kelvin, 1667.0, 25000.0);
+  float t = 1000.0 / T;
+  float x = T < 4000.0
+    ? ((-0.2661239 * t - 0.2343589) * t + 0.8776956) * t + 0.179910
+    : ((-3.0258469 * t + 2.1070379) * t + 0.2226347) * t + 0.240390;
+  float y = T < 2222.0
+    ? ((-1.1063814 * x - 1.34811020) * x + 2.18555832) * x - 0.20219683
+    : T < 4000.0
+      ? ((-0.9549476 * x - 1.37418593) * x + 2.09137015) * x - 0.16748867
+      : ((3.0817580 * x - 5.87338670) * x + 3.75112997) * x - 0.37001483;
+  vec3 xyz = vec3(x / y, 1.0, (1.0 - x - y) / y);
+  return max(mat3(3.2406, -0.9689, 0.0557, -1.5372, 1.8758, -0.2040, -0.4986, 0.0415, 1.0570) * xyz, 0.0);
+}
+`;
+
+/**
+ * Sky fill from the published ambient cube (`Lighting.ambient`, ordered +X, -X,
+ * +Y, -Y, +Z, -Z): each axis contributes by the squared normal component on
+ * its side, so a face turned toward a blue nebula takes a blue fill.
+ */
+export const AMBIENT_GLSL = /* glsl */ `
+vec3 ocAmbient(vec3 N, vec3 cube[6]) {
+  vec3 n2 = N * N;
+  return n2.x * (N.x >= 0.0 ? cube[0] : cube[1])
+    + n2.y * (N.y >= 0.0 ? cube[2] : cube[3])
+    + n2.z * (N.z >= 0.0 ? cube[4] : cube[5]);
+}
+`;
+
+/**
  * Derivative tangent frame: the fleet GLBs carry no tangent attribute, so the
  * normal map is decoded against screen-space derivatives (three's own
  * cotangent_frame trick, renamed to avoid collisions).

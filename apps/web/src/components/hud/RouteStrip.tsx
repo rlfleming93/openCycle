@@ -2,7 +2,17 @@ import { useRef } from 'react';
 
 import type { Leg, LegKind } from '@opencycle/shared';
 
-import { fmtClock, legObjective, legRemainingS, objectiveLegCount, routeHeader } from '../../game/hud.js';
+import {
+  LEG_ON_TARGET_DISPLAY_S,
+  fmtClock,
+  legLockFraction,
+  legLockLabel,
+  legObjective,
+  legOnTargetPct,
+  legRemainingS,
+  objectiveLegCount,
+  routeHeader,
+} from '../../game/hud.js';
 import { useAppStore } from '../../store.js';
 
 /**
@@ -74,6 +84,10 @@ export default function RouteStrip() {
     arrivedRef.current = true;
   }
   const header = routeHeader(destination, lead.workoutRemainingS, arrivedRef.current);
+  // The lock meter reads only once the leg has enough targeted seconds; until
+  // then it shows 'LOCK —' with an empty bar.
+  const lockPct =
+    lead.legTargetedS < LEG_ON_TARGET_DISPLAY_S ? null : legOnTargetPct(lead.legTargetedS, lead.legOnTargetS);
   const fillPct =
     currentLeg === undefined || currentLeg.endS <= currentLeg.startS || lead.workoutClockS === null
       ? 0
@@ -130,6 +144,23 @@ export default function RouteStrip() {
             <p className="truncate text-[clamp(15px,1.25vw,38px)] text-over">
               {currentLeg.label} — {legObjective(currentLeg)}
               {remainingS !== null && <span className="text-dim"> · {fmtClock(remainingS)} LEFT</span>}
+              {currentLeg.kind === 'burn' && (
+                <span className="text-dim">
+                  {' · '}
+                  <span className={lockPct === null ? 'text-dim' : 'text-ink'}>
+                    {legLockLabel(lead.legTargetedS, lead.legOnTargetS)}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="ml-[clamp(4px,0.42vw,14px)] inline-block h-[clamp(4px,0.42vw,14px)] w-[clamp(36px,3.65vw,120px)] overflow-hidden rounded-full bg-ink/15 align-middle"
+                  >
+                    <span
+                      className="block h-full rounded-full bg-on"
+                      style={{ width: `${legLockFraction(lead.legTargetedS, lead.legOnTargetS) * 100}%` }}
+                    />
+                  </span>
+                </span>
+              )}
             </p>
           )}
           <span className="shrink-0 rounded-full border border-line bg-void/50 px-[clamp(8px,0.83vw,24px)] py-[clamp(2px,0.21vw,6px)] text-[clamp(12px,0.94vw,28px)] text-dim">

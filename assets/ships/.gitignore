@@ -1,8 +1,9 @@
-# Pipeline intermediates and per-hull proofs (run_all.sh regenerates them).
-# Tracked artifacts: apps/web/public/assets/ships/*.glb and renders/fleet_game.png.
+# Pipeline intermediates. The shipped artifacts are
+# apps/web/public/assets/ships/*.glb and the two contact sheets in renders/.
 vendor/
 work/
 bake/
 __pycache__/
 renders/*
 !renders/fleet_game.png
+!renders/raider_game.png

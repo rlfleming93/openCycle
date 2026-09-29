@@ -50,6 +50,18 @@ FLEET = ["striker", "challenger", "zenith", "insurgent"]
 SUBSTITUTES = ["spitfire", "omen", "bob"]
 CANDIDATES = FLEET + SUBSTITUTES
 
+# --- the raider (pursuit enemy on burn legs) ------------------------------
+# Not part of the rider fleet: it is its own GLB, built from the unused vendor
+# hull whose chase-camera silhouette reads furthest from the fleet (measured
+# pairwise IoU against striker/challenger/zenith/insurgent: spitfire 0.35 mean,
+# bob 0.45, omen 0.47 - lowest is most distinct).
+RAIDER_ID = "raider"
+RAIDER_HULL = "spitfire"
+BUILD_ORDER = FLEET + [RAIDER_ID]
+# The pursuit is watched from the chase camera at about this range, so the
+# raider proof render is framed there rather than on the fleet's 38% target.
+RAIDER_CHASE_DIST = 80.0
+
 # --- per-hull build budget ----------------------------------------------
 TARGET_LENGTH = 9.0          # world units nose-to-tail
 # Atlas size. The plan names 2048, but these maps ship as lossless PNG inside a
@@ -163,8 +175,13 @@ TEX_EMISSIVE = "emissive"
 IDENTITY_HEX = ["#5b8cff", "#ff7a6b", "#f5c542", "#4fd1c5"]
 
 
+def source_hull(build_id):
+    """Build id -> vendor hull: the raider borrows an unused hull."""
+    return RAIDER_HULL if build_id == RAIDER_ID else build_id
+
+
 def source_dir(hull_id):
-    return os.path.join(VENDOR, hull_id.capitalize())
+    return os.path.join(VENDOR, source_hull(hull_id).capitalize())
 
 
 # --- deterministic seeding ------------------------------------------------
@@ -213,6 +230,43 @@ def render_path(hull_id):
     return os.path.join(RENDER_DIR, f"{hull_id}_game.png")
 
 
+# --- per-build finish overrides -------------------------------------------
+# The raider is a dark, matte, hostile machine rather than a service livery.
+FINISH_OVERRIDES = {
+    RAIDER_ID: {
+        "gunmetal": 0x2E3138,       # shadowed plate
+        "bone": 0x3A3D44,           # lit plate
+        "liverySat": 0.10,
+        "roughLo": 0.55,
+        "roughHi": 0.75,
+        "metal": 0.15,
+        "accentMetal": 0.10,
+        "accentTarget": 0.025,
+        "accentBand": 0.5,
+        "glow": 0xFF9A5C,           # hot amber engine rims, not the fleet's cool white
+        "dark": 0x15161A,
+    },
+}
+
+
+def finish_opts(build_id):
+    """Resolved finish numbers: defaults, with the raider's overrides on top."""
+    o = FINISH_OVERRIDES.get(build_id, {})
+    return {
+        "gunmetal": o.get("gunmetal", (GUNMETAL[0] << 16) | (GUNMETAL[1] << 8) | GUNMETAL[2]),
+        "bone": o.get("bone", (BONE[0] << 16) | (BONE[1] << 8) | BONE[2]),
+        "liverySat": o.get("liverySat", LIVERY_SATURATION),
+        "roughLo": o.get("roughLo", WEAR_ROUGH_LO),
+        "roughHi": o.get("roughHi", WEAR_ROUGH_HI),
+        "metal": o.get("metal", HULL_METALLIC),
+        "accentMetal": o.get("accentMetal", ACCENT_METALLIC),
+        "accentTarget": o.get("accentTarget", ACCENT_TARGET_COVERAGE),
+        "accentBand": o.get("accentBand", ACCENT_BAND_WIDTH),
+        "glow": o.get("glow", ENGINE_GLOW_HEX),
+        "dark": o.get("dark", EMISSIVE_INTERIOR_HEX),
+    }
+
+
 def source_path(hull_id):
     """First match of **/<Name>*.gltf|*.glb, else *.blend, else *.fbx."""
     import glob
@@ -220,7 +274,7 @@ def source_path(hull_id):
     base = source_dir(hull_id)
     if not os.path.isdir(base):
         return None
-    cap = hull_id.capitalize()
+    cap = source_hull(hull_id).capitalize()
     for pat in (f"**/{cap}*.gltf", f"**/{cap}*.glb", f"**/{cap}*.blend", f"**/{cap}*.fbx"):
         hits = sorted(glob.glob(os.path.join(base, pat), recursive=True))
         if hits:

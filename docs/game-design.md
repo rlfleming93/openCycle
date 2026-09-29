@@ -81,29 +81,55 @@ Multi-rider sessions keep the server's co-op events:
 A free ride, or a session with no workout, is an open-space cruise: no
 destination, no route strip, and the voyage does not advance.
 
+### Pursuits
+
+Every burn leg of the lead rider is a pursuit. A raider warps in ahead of the
+fleet about 3 s into the burn. Every riding ship whose rider is in band (live,
+no ERG guard, power within ±10% of target) fires at it. A lock ring on the raider
+fills with the lead's on-target share for the leg. When the burn ends, a clean
+survey takes the raider down; otherwise it escapes to warp. Nobody takes damage,
+and the survey rules are unchanged: the raider only shows the verdict the server
+already made.
+
 ## World
 
 The renderer lives in `apps/web/src/game/world/`, driven by the pure director
 in `apps/web/src/game/director.ts`, which turns the store (session snapshot,
 telemetry, events) into one frame per animation tick.
 
-- **Sky**: near-black blue base, one restrained nebula band, 7,000 stars and a
-  seeded sun. The palette family is seeded by the destination.
-- **Destination planet**: procedural bands, land and clouds with an atmosphere
-  rim. Its apparent size grows with workout progress, from 1.5% of the viewport
-  height at the start to 12% at 80%, then 18% at arrival.
+- **Sky and anchor**: a near-black deep sky baked per destination into a cube
+  map (galactic band with dust lanes, emission and reflection nebulae, a faint
+  star field, distant galaxies), plus about 48 bright stars with diffraction
+  spikes. Each system has one colossal anchor, seeded by the destination: a
+  black hole that lenses the sky (45%), a blue supergiant (30%) or a binary pair
+  (25%). The anchor is the only key light.
+- **Destination planet**: procedural bands, land and clouds, lit by the anchor
+  with a deep night side and an atmosphere rim. Its apparent size grows with
+  workout progress, from 1.5% of the viewport height at the start to 12% at
+  80%, then 18% at arrival.
 - **Fleet**: one ship per rider (CC0 Quaternius hulls with a custom finish),
-  accented in the rider's identity color, flying in formation. Engine plumes
-  follow effort; paused ships idle, a guarded ship sputters amber, a stopped
-  rider's ship peels away.
+  accented in the rider's identity color. Ships fly with mass and flight assist:
+  they bank to turn, weave by leg kind (widest on burns), overtake each other on
+  burns and barrel-roll on a clean survey, with RCS puffs on every maneuver.
+  Engine color follows throttle (idle orange-red, cruise blue-white, white-hot
+  with shock diamonds in band on a burn); each burn starts with a boost and ion
+  contrails. Paused ships idle, a guarded ship sputters amber, a stopped rider's
+  ship peels away.
+- **Frame Shift Drive**: the session opens with a charge, a hyperspace tunnel
+  and an exit flash that reveals the system; arrival is a drop from supercruise.
+  Cruise, climb and coast legs fly in supercruise with faint edge distortion.
+- **Pursuit**: the raider jinks, rolls and drops chaff under lock; in-band ships
+  fire paired pulse bolts in their identity color plus yellow tracers. A kill is
+  a fireball, shock ring and glowing debris; an escape is a warp-out.
 - **Travel**: speed streaks, dust and asteroids; asteroid density follows the
   leg kind (densest on burns).
 - **Route**: a dashed line from the fleet to the destination.
 - **Effects**: a survey probe flies from the ship to the planet on each clean
-  leg; co-op tether, beacon flare and rescue shield.
-- **Camera**: a chase camera with the fleet in the lower-left third and the
-  destination in the upper-middle third. On arrival it pushes in over 6 s and
-  holds a slow orbit until the session ends.
+  cruise or climb leg; co-op tether, beacon flare and rescue shield.
+- **Camera**: an external chase camera that lags the ship's orientation, so
+  maneuvers read in frame. It cuts only at leg boundaries between the chase, a
+  low side track and a high wide shot; burns and arrival always use the chase.
+  On arrival it settles into a slow orbit until the session ends.
 
 ## HUD
 
@@ -118,8 +144,10 @@ alone; every state also has a glyph or word.
   time left and the next target, cadence, heart rate, and the leg's on-target
   percentage on objective legs.
 - **Destination marker**: a ring and label tracking the planet on screen.
-- **Leg toasts**: `BURN 1/4 COMPLETE · SURVEY LOCKED` on a clean leg, otherwise
-  the on-target percentage.
+- **Leg toasts**: `BURN 1/4 COMPLETE · RAIDER DOWN · SURVEY LOCKED` on a clean
+  burn, `RAIDER ESCAPED · {pct}% ON TARGET` otherwise; other legs show `SURVEY
+  LOCKED` or the on-target percentage. On a burn the objective line adds
+  `LOCK {pct}%`.
 - **Arrival card**: system name, surveys per finisher, place in the voyage and
   co-op honors; it collapses to a chip after 20 s.
 - **Ride controls** (`c`): pause, bias, skip, stop rider, media, space game on
@@ -128,13 +156,15 @@ alone; every state also has a glyph or word.
 ## Degradation ladder
 
 The renderer tracks a 5 s moving average of frame time and steps down one rung
-each time it stays above 20 ms. The HUD is unaffected.
+each time it stays above 20 ms. Each frame counts for at most 40 ms, so a lone
+stall (a GC pause, a tab hiccup) never costs a rung; only sustained slow frames
+do. The HUD is unaffected.
 
 | Rung | Change |
 |---|---|
-| 0 | Full quality: bloom, ACES tone mapping, internal render up to 2560×1440 |
-| 1 | Post-processing off (recovers after 10 s under 14 ms, at most 3 times) |
-| 2 | Streaks, dust and asteroids halved |
+| 0 | Full quality: bloom, anamorphic streak, grain, AgX tone mapping, internal render up to 2560×1440 |
+| 1 | Lens off, tone mapping only (recovers after 10 s under 14 ms, at most 3 times) |
+| 2 | Cheaper anchor and half the bright stars; streaks, dust and asteroids halved |
 | 3 | Internal render capped at 1920×1080 |
 | 4 | Planet noise octaves drop from 7 to 3 |
 | 5 | 3D frozen on the last frame |

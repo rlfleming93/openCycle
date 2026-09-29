@@ -32,7 +32,7 @@ const EMA_TAU_S = 5;
 const EMA_FLOOR_S = 0.02;
 /** Rung-1 recover: EMA must stay under 14 ms. */
 const EMA_RECOVER_S = 0.014;
-/** Rung-1 recover hold: 10 s of good EMA before restoring bloom/ACES. */
+/** Rung-1 recover hold: 10 s of good EMA before restoring the lens (bloom, streak, grain). */
 const RECOVER_HOLD_S = 10;
 /** After this many 1→0 recoveries the session sticks at rung ≥1. */
 const MAX_RECOVERIES = 3;
@@ -57,10 +57,10 @@ export interface GameRendererHooks {
  * Disposal contract (everything the instance creates dies here):
  *  - RAF: canceled; the running flag stops the next scheduled callback.
  *  - ResizeObserver: disconnected.
- *  - GameWorld.dispose(): sky sphere + stars, destination planet + features +
- *    horizon giant, fleet hulls/materials/textures, field streaks/dust/
+ *  - GameWorld.dispose(): sky cube map + bake/sky/star passes, destination
+ *    planet + features, fleet hulls/materials/textures, field streaks/dust/
  *    asteroids, route line, every pooled fx geometry/material.
- *  - Post.dispose(): composer render targets + bloom + output passes.
+ *  - Post.dispose(): HDR scene target, bloom mips, streak targets, pass materials.
  *  - renderer.dispose(): releases the GL context resources; the canvas is
  *    removed from the DOM.
  *  - window.__ocGameRung reset to 0.
@@ -98,10 +98,10 @@ export class GameRenderer {
       antialias: false, // no MSAA (fill rate is the budget)
       powerPreference: 'high-performance',
     });
+    // Tone mapping (AgX) and sRGB output happen in the post chain's composite.
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
-    this.renderer.setClearColor(0x02040a, 1);
+    this.renderer.setClearColor(0x000000, 1);
     const canvas = this.renderer.domElement;
     canvas.style.display = 'block';
     canvas.style.width = '100%';
@@ -139,7 +139,7 @@ export class GameRenderer {
 
     const frame = this.director.sample(nowMs);
     this.world.update(frame, nowMs, dtS, { rung: this.rung, viewportH: this.internalH });
-    window.__ocDrawCalls = this.post.render();
+    window.__ocDrawCalls = this.post.render(this.world.lens);
     this.trackFrameTime(dtS * 1000);
     this.hooks.onDestinationScreen?.(
       this.world.destinationScreen() ?? { x: 0, y: 0, visible: false, r: 0 },
@@ -165,15 +165,19 @@ export class GameRenderer {
    * recovers after 10 s of EMA < 14 ms, at most 3 times per session; rungs
    * ≥2 stay one-way. The first 5 s after start() are ignored so prewarm /
    * compile hitches cannot trip the ladder. HUD is DOM and is unaffected.
-   * Rungs: 1 post off → 2 stars/field halved → 3 internal 1080p →
-   * 4 planet flat (3 octaves) → 5 freeze 3D.
+   * Rungs: 1 lens off (tone map only) → 2 cheaper sky + field halved →
+   * 3 internal 1080p → 4 planet flat (3 octaves) → 5 freeze 3D.
    */
   private degrade(dtS: number): void {
     if (this.rung >= 5) return;
     const inGrace = this.aliveS < GRACE_S;
     this.aliveS += dtS;
-    const alpha = 1 - Math.exp(-dtS / EMA_TAU_S);
-    this.emaDtS += (dtS - this.emaDtS) * alpha;
+    // A lone stall (GC pause, tab hiccup, a screenshot) must not cost a rung:
+    // cap each frame's contribution at 2× the floor, so only sustained slow
+    // frames move the EMA past it.
+    const sample = Math.min(dtS, EMA_FLOOR_S * 2);
+    const alpha = 1 - Math.exp(-sample / EMA_TAU_S);
+    this.emaDtS += (sample - this.emaDtS) * alpha;
     if (this.aliveS < GRACE_S) return;
     if (inGrace) {
       // Drop compile/prewarm hitch from the EMA so grace cannot trip rung 1.
@@ -231,7 +235,6 @@ export class GameRenderer {
     this.renderer.setSize(w, h, false);
     this.internalH = Math.max(2, Math.round(h * pr));
     this.post.setSize(Math.max(2, Math.round(w * pr)), Math.max(2, Math.round(h * pr)));
-    this.world.setPixelRatio(pr);
     this.world.camera.aspect = w / h;
     this.world.camera.updateProjectionMatrix();
   }

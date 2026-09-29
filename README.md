@@ -8,11 +8,12 @@ Site: https://opencycle.pages.dev
 
 ## The voyage
 
-Every workout is a flight to a new star system.
+Every workout is a flight to a new star system. Each system has a colossal anchor to fly toward: a black hole that bends the starlight around it, a blue supergiant or a binary pair. The session opens with a jump through hyperspace, and the ships fly with weight: they bank into turns, weave, boost and overtake each other.
 
 - **The workout clock is the mission clock.** You arrive by finishing the workout. How hard you push changes what you find there, never whether you get there.
 - **Legs.** The workout is split into legs: launch, cruise, climb, burn, coast and approach. Interval efforts become burns. The route strip at the top of the screen shows every leg and how long is left in the current one.
 - **Surveys.** Each cruise, climb and burn leg is a survey. Hold within 10% of the target for at least 85% of the leg and the survey locks: a probe launches toward the planet, and on arrival that survey lights up a ring, moon or station in the new system. Going over target doesn't count.
+- **Pursuits.** Every burn is a chase. A raider warps in ahead of the fleet, and while you hold your target your ship fires at it and the lock builds. Finish the burn clean and the raider goes down; miss it and the raider escapes. Nobody takes damage.
 - **Your voyage.** Each rider keeps a star map of every system they've reached, with their surveys. The next destination is always known in advance, so the Voyage page can show where your planned workouts will take you.
 - **Riding together.** With two or more riders, everyone flies to the lead rider's destination in formation. When everyone holds their zone together, a tether links the ships. When one rider's cadence drops out and another pushes 10% over their own target for 15 seconds to cover, a shield goes up around the struggling ship in the helper's color.
 - **Free rides** cruise open space with no destination.

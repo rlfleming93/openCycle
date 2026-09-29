@@ -67,6 +67,22 @@ export function legOnTargetPct(targetedS: number, onTargetS: number): number {
   return Math.round((onTargetS / targetedS) * 100);
 }
 
+/**
+ * Burn-leg lock meter: the raider's lock is the on-target share of the live
+ * leg. `LOCK 72%`, or `LOCK —` until the leg has enough targeted seconds to
+ * read (the same 5 s floor the on-target readout uses).
+ */
+export function legLockLabel(targetedS: number, onTargetS: number): string {
+  if (targetedS < LEG_ON_TARGET_DISPLAY_S) return 'LOCK —';
+  return `LOCK ${legOnTargetPct(targetedS, onTargetS)}%`;
+}
+
+/** Lock bar fill, 0..1; 0 while the lock readout is still `—`. */
+export function legLockFraction(targetedS: number, onTargetS: number): number {
+  if (targetedS < LEG_ON_TARGET_DISPLAY_S) return 0;
+  return Math.min(1, Math.max(0, onTargetS / targetedS));
+}
+
 /** 3 s trailing average power (samples arrive at 1 Hz, so the last 3 samples). */
 export function trailingAvgPower(samples: readonly TelemetrySample[]): number {
   if (samples.length === 0) return 0;
@@ -116,15 +132,23 @@ export interface LegToast {
   tone: 'on' | 'neutral';
 }
 
-/** Leg-complete toast; the rider name prefixes it in multi-rider sessions. */
+/**
+ * Leg-complete toast; the rider name prefixes it in multi-rider sessions.
+ * Burn legs are pursuits: a clean burn brings the raider down, anything else
+ * lets it escape (the survey rules are unchanged — clean still locks).
+ */
 export function legToast(input: LegToastInput, riderName: string | null): LegToast {
   const label = legLabel(input.legKind, input.leg);
   const prefix = riderName === null ? '' : `${riderName} · `;
-  if (input.clean) {
-    return { text: `${prefix}${label} COMPLETE · SURVEY LOCKED`, tone: 'on' };
-  }
   const pct = legOnTargetPct(input.targetedS, input.onTargetS);
-  return { text: `${prefix}${label} COMPLETE · ${pct}% ON TARGET`, tone: 'neutral' };
+  if (input.legKind === 'burn') {
+    return input.clean
+      ? { text: `${prefix}${label} COMPLETE · RAIDER DOWN · SURVEY LOCKED`, tone: 'on' }
+      : { text: `${prefix}${label} COMPLETE · RAIDER ESCAPED · ${pct}% ON TARGET`, tone: 'neutral' };
+  }
+  return input.clean
+    ? { text: `${prefix}${label} COMPLETE · SURVEY LOCKED`, tone: 'on' }
+    : { text: `${prefix}${label} COMPLETE · ${pct}% ON TARGET`, tone: 'neutral' };
 }
 
 /**

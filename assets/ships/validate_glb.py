@@ -128,7 +128,7 @@ def apply_tint(hull_id, slot):
     return identity
 
 
-def render_proof(hull_id, slot, samples=160):
+def render_proof(hull_id, slot, samples=160, dist_override=None):
     identity = apply_tint(hull_id, slot)
     R.clear_cameras_lights()
     bpy.context.scene.use_nodes = False
@@ -142,6 +142,8 @@ def render_proof(hull_id, slot, samples=160):
     R.game_camera(cen, dist=dist)
     sil = os.path.join(C.RENDER_DIR, f"{hull_id}_sil.png")
     R.render_wh(sil, w=SIL_W, h=SIL_H)
+    if dist_override is not None:
+        dist = dist_override
 
     # then the shaded proof, lit and bloomed like the game
     R.clear_cameras_lights()
@@ -233,7 +235,7 @@ def hue_of(hex_str):
 def sheet():
     """Contact sheet + the fleet-level silhouette metrics."""
     paths, sils = [], []
-    for hull in C.FLEET:
+    for hull in list(C.FLEET) + [C.RAIDER_ID]:
         g = os.path.join(C.RENDER_DIR, f"{hull}_game_960.png")
         if os.path.exists(g):
             paths.append(g)
@@ -241,7 +243,7 @@ def sheet():
         if os.path.exists(s):
             sils.append((hull, R.silhouette_mask(s)))
     out = os.path.join(C.RENDER_DIR, "fleet_game.png")
-    R.montage(paths, 2, out)
+    R.montage(paths, 3, out)
     print(f">>> contact sheet {out}")
     masks = {}
     for hull, m in sils:
@@ -270,6 +272,12 @@ def sheet():
         print("      " + " ".join(f"{k:>10}"[:10] for k in keys))
         for k, row in zip(keys, rows):
             print(f"      {k:>10} " + " ".join(f"{v:10.3f}" for v in row))
+        if C.RAIDER_ID in masks and len(keys) > 1:
+            rid = masks[C.RAIDER_ID]
+            vs = [(float((rid & masks[k]).sum()) / float((rid | masks[k]).sum()), k)
+                  for k in keys if k != C.RAIDER_ID]
+            print("    raider vs fleet IoU: " + " ".join(f"{k}={v:.3f}" for v, k in vs)
+                  + f"  mean={sum(v for v, _ in vs) / len(vs):.3f}")
         worst = max((v, keys[i], keys[j]) for i, row in enumerate(rows)
                     for j, v in enumerate(row) if i < j)
         print(f"    worst pair: {worst[1]}/{worst[2]} IoU={worst[0]:.3f}")
@@ -280,12 +288,14 @@ def main():
     if "--sheet" in argv:
         sheet()
         return
-    hulls = [a for a in argv if not a.startswith("--")] or list(C.FLEET)
+    hulls = [a for a in argv if not a.startswith("--")] or list(C.BUILD_ORDER)
     report = {}
     for hull_id in hulls:
         slot = C.FLEET.index(hull_id) if hull_id in C.FLEET else 0
+        # the raider is its own tile: identity tint is irrelevant to it
         v = validate(hull_id)
-        v.update(render_proof(hull_id, slot))
+        v.update(render_proof(hull_id, slot,
+                              dist_override=C.RAIDER_CHASE_DIST if hull_id == C.RAIDER_ID else None))
         v.update(accent_probe(hull_id, slot))
         report[hull_id] = v
         print(f">>> {hull_id}: {v['tris']} tris  {v['bytes'] / 1024:.0f} KB  "

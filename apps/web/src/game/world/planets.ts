@@ -1,34 +1,26 @@
 import * as THREE from 'three';
 
-import {
-  CRUISE_DEST_SCREEN,
-  GIANT_ANGULAR_RAD,
-  GIANT_DISTANCE,
-  GIANT_PITCH_REL_RAD,
-  GIANT_YAW_REL_RAD,
-  NOMINAL_FOV_Y_RAD,
-  UP,
-  axisPitch,
-  axisYaw,
-  baseCameraPosition,
-  nominalFovX,
-  PLANET_DIR,
-  PLANET_DISTANCE,
-} from './composition.js';
+import { hashSeed } from '@opencycle/shared';
+
+import { UP, baseCameraPosition, PLANET_DIR, PLANET_DISTANCE } from './composition.js';
 import { NOISE_GLSL } from './glsl.js';
-import { easeInCubic, lerp, radians, radiusForFraction, seededRandom } from './math.js';
-import { skyPalette } from './sky.js';
-import type { SkyPalette } from './sky.js';
+import { easeInCubic, lerp, radians, radiusForFraction, seededRandom, smoothstep } from './math.js';
+import type { Lighting } from './sky.js';
 import { makeSphereMaterial } from './sphere.js';
 
 /**
- * Destination system: the planet the voyage flies to, its survey features and
- * the decorative horizon giant. All of it is seeded — the palette comes from
- * the destination seed, so a system always looks like its own sky.
+ * Destination system: the planet the voyage flies to and its survey features.
+ * All of it is seeded — the palette comes from the destination seed.
  *
- * The planet and the giant are analytic sphere impostors (see sphere.ts): their
- * limbs stay perfectly round at 4K and they write true hit depth, so the ring's
- * far side and the moons sort against them.
+ * Everything is lit by the anchor alone (vision law 2). In the chase shot the
+ * anchor sits behind the planet, so the planet reads as a deep night-side disc
+ * with a lit crescent and a forward-scattering atmosphere ring, the ring glows
+ * where it is backlit and carries the planet's shadow, and the moons are
+ * crescents.
+ *
+ * The planet is an analytic sphere impostor (see sphere.ts): its limb stays
+ * perfectly round at 4K and it writes true hit depth, so the ring's far side
+ * and the moons sort against it.
  */
 /** Disc radius as a fraction of the viewport height, against frame.progress. */
 const FRACTION_NEAR = 0.015;
@@ -51,6 +43,40 @@ const MAX_PLANE_TILT = 0.25;
  * ellipse (minor/major = cos 62 deg = 0.47) crossing the planet.
  */
 const RING_TILT_RAD = radians(62);
+/** Atmosphere shell height in planet radii, and its minimum on-screen width. */
+const ATMOSPHERE = 0.045;
+const ATMOSPHERE_MIN_PX = 3;
+const ATMOSPHERE_GAIN = 1.1;
+/** How far out along the key direction the anchor hangs, for the system's own light angle. */
+const ANCHOR_DISTANCE = 3800;
+
+/** Planet palette families, seeded by the destination. */
+const FAMILIES = [
+  { sea: 0x122a52, land: 0x2f4470, cloud: 0x9fb2e0, accent: 0x7fd8ff },
+  { sea: 0x0f3330, land: 0x2f6a52, cloud: 0xa7d8c8, accent: 0xffc38a },
+  { sea: 0x241a44, land: 0x463263, cloud: 0xc0a8e0, accent: 0xffb0c8 },
+  { sea: 0x14202e, land: 0x3b4a5c, cloud: 0xbcccda, accent: 0xf5d488 },
+] as const;
+
+interface Palette {
+  family: number;
+  sea: THREE.Color;
+  land: THREE.Color;
+  cloud: THREE.Color;
+  accent: THREE.Color;
+}
+
+function planetPalette(seed: string): Palette {
+  const family = hashSeed(`${seed}:palette`) % FAMILIES.length;
+  const f = FAMILIES[family]!;
+  return {
+    family,
+    sea: new THREE.Color(f.sea),
+    land: new THREE.Color(f.land),
+    cloud: new THREE.Color(f.cloud),
+    accent: new THREE.Color(f.accent),
+  };
+}
 
 interface FeatureSlot {
   group: THREE.Group;
@@ -64,8 +90,8 @@ interface FeatureSlot {
 }
 
 /**
- * The body shading function shared by the impostors and the moon meshes:
- * `ocSurface(dirObj, N, V, worldPos)` returns linear colour.
+ * The body shading functions shared by the impostor and the moon meshes:
+ * `ocSurface(dirObj, N, V, worldPos)` and the halo `ocAtmosphere(N, V, h)`.
  */
 const SURFACE_SHADE_GLSL = /* glsl */ `
 uniform vec3 uSea;
@@ -74,6 +100,7 @@ uniform vec3 uCloud;
 uniform vec3 uAtmo;
 uniform vec3 uKey;
 uniform vec3 uSunDir;
+uniform vec3 uFill;
 uniform vec3 uSeedOffset;
 uniform float uOctaves;
 uniform float uBandFreq;
@@ -81,9 +108,19 @@ uniform float uBandMix;
 uniform float uLandLevel;
 uniform float uCloudAmount;
 uniform float uAtmoGain;
-uniform float uNightFloor;
 uniform float uTime;
 ${NOISE_GLSL}
+
+// Air lit from behind scatters forward: the limb blazes when you look toward
+// the light, and the light that grazes through it is reddened.
+vec3 ocAirGlow(vec3 N, vec3 V) {
+  float ndl = dot(N, uSunDir);
+  float c = max(dot(-uSunDir, V), 0.0);
+  float forward = 0.06 + 0.9 * pow(c, 5.0) + 1.4 * pow(c, 60.0);
+  float litAir = smoothstep(-0.35, 0.15, ndl);
+  vec3 tint = mix(uAtmo, vec3(1.0, 0.42, 0.18), smoothstep(0.25, -0.25, ndl) * 0.75);
+  return tint * uKey * litAir * forward;
+}
 
 vec3 ocSurface(vec3 dirObj, vec3 N, vec3 V, vec3 worldPos) {
   vec3 p = normalize(dirObj);
@@ -98,17 +135,20 @@ vec3 ocSurface(vec3 dirObj, vec3 N, vec3 V, vec3 worldPos) {
   float clouds = ocFbm(p * 3.1 + uSeedOffset * 1.7 + vec3(uTime * 0.02, 0.0, 0.0), min(uOctaves, 3.0));
   surface = mix(surface, uCloud, smoothstep(0.55, 0.82, clouds) * uCloudAmount);
 
+  // One light: Lambert from the anchor with a short soft terminator; the
+  // night side keeps only the faint cool sky bounce.
   float ndl = dot(N, uSunDir);
-  // Wide, soft terminator: the destination stays a readable world.
-  float lit = smoothstep(-0.30, 0.30, ndl);
-
-  vec3 col = surface * uKey * (uNightFloor + (1.0 - uNightFloor) * lit);
+  float lit = smoothstep(-0.04, 0.2, ndl) * max(ndl, 0.0);
+  vec3 col = surface * (uKey * lit + uFill);
   vec3 h = normalize(uSunDir + V);
-  col += uKey * pow(max(dot(N, h), 0.0), 28.0) * 0.05 * (1.0 - landMask) * lit;
-  // Atmosphere: a thin fresnel rim on the LIT limb only.
-  float fres = pow(1.0 - max(dot(N, V), 0.0), 4.0);
-  col += uAtmo * fres * uAtmoGain * lit;
+  col += uKey * pow(max(dot(N, h), 0.0), 40.0) * 0.08 * (1.0 - landMask) * step(0.0, ndl);
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+  col += ocAirGlow(N, V) * fres * uAtmoGain;
   return col;
+}
+
+vec3 ocAtmosphere(vec3 N, vec3 V, float h) {
+  return ocAirGlow(N, V) * uAtmoGain * exp(-h * 4.0) * (1.0 - h) * 0.8;
 }`;
 
 const MESH_VERT = /* glsl */ `
@@ -124,6 +164,7 @@ void main() {
 }`;
 
 const MESH_FRAG = /* glsl */ `
+uniform float uReveal;
 ${SURFACE_SHADE_GLSL}
 varying vec3 vObj;
 varying vec3 vNormalW;
@@ -131,83 +172,109 @@ varying vec3 vWorldPos;
 void main() {
   vec3 N = normalize(vNormalW);
   vec3 V = normalize(cameraPosition - vWorldPos);
-  gl_FragColor = vec4(ocSurface(normalize(vObj), N, V, vWorldPos), 1.0);
+  gl_FragColor = vec4(ocSurface(normalize(vObj), N, V, vWorldPos) * uReveal, 1.0);
 }`;
 
 const RING_VERT = /* glsl */ `
 varying vec2 vLocal;
 varying vec3 vWorldPos;
+varying vec3 vNormalW;
 void main() {
   vLocal = position.xy;
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vWorldPos = wp.xyz;
+  vNormalW = normalize(mat3(modelMatrix) * vec3(0.0, 0.0, 1.0));
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 
 /**
- * Thin banded annulus: seeded gaps, palette tint, sun-lit with the planet's
- * shadow carved out behind it (a self-shadow term, no shadow map needed).
+ * Thin banded annulus: seeded gaps, palette tint, lit by the anchor. Seen from
+ * the lit face it reflects; backlit it glows by forward scattering, brightest
+ * in the thin gaps. The planet's shadow is carved out behind it (an analytic
+ * cylinder along the light, no shadow map needed).
  */
 const RING_FRAG = /* glsl */ `
 uniform float uInner;
 uniform float uOuter;
 uniform vec3 uKey;
 uniform vec3 uSunDir;
+uniform vec3 uFill;
 uniform vec3 uAccent;
 uniform vec3 uCenter;
 uniform float uPlanetR;
 uniform float uNoiseSeed;
+uniform float uReveal;
 ${NOISE_GLSL}
 varying vec2 vLocal;
 varying vec3 vWorldPos;
+varying vec3 vNormalW;
 
 void main() {
   float r = length(vLocal);
   float t = clamp((r - uInner) / (uOuter - uInner), 0.0, 1.0);
-  // Two seeded bands so the annulus reads as ring structure, not a flat disc.
+  // Seeded bands, a dark division and fine ringlets, so the annulus reads as
+  // ring structure rather than a flat disc. tau is the optical depth.
   float gap = ocNoise(vec3(t * 5.0, uNoiseSeed, 0.0));
   float bands = smoothstep(0.38, 0.46, gap) * (1.0 - smoothstep(0.54, 0.62, gap));
   float band2 = smoothstep(0.72, 0.78, ocNoise(vec3(t * 11.0 + 3.1, uNoiseSeed * 1.7, 0.0)));
+  float fine = ocNoise(vec3(t * 60.0, uNoiseSeed * 2.3, 0.0));
+  float ringlets = ocNoise(vec3(t * 150.0, uNoiseSeed * 3.1, 0.0));
+  float division = smoothstep(0.012, 0.03, abs(t - 0.58 - uNoiseSeed * 0.01));
   float edge = smoothstep(0.0, 0.08, t) * (1.0 - smoothstep(0.86, 1.0, t));
   float bandMix = max(bands, band2 * 0.7);
-  float alpha = edge * (0.35 + 0.4 * bandMix);
+  float tau = edge * division * (0.12 + 0.55 * bandMix + 0.2 * fine) * (0.65 + 0.35 * ringlets);
 
-  // Planet shadow: an infinite cylinder along the sun direction through the
-  // planet. Behind the planet (along < 0) AND inside its radius (perp < R).
-  // Nothing else darkens: the rest of the ring is lit uniformly by the key.
   vec3 rel = vWorldPos - uCenter;
   float along = dot(rel, uSunDir);
   float perp = length(rel - uSunDir * along);
-  float inCylinder = 1.0 - smoothstep(uPlanetR * 0.98, uPlanetR * 1.04, perp);
-  float behind = 1.0 - smoothstep(-uPlanetR * 0.35, 0.0, along);
-  float shadow = 1.0 - 0.85 * inCylinder * behind;
+  // Umbra behind the planet, with a soft brightness gradient leading into it.
+  float umbra = 1.0 - smoothstep(uPlanetR * 0.98, uPlanetR * 1.03, perp);
+  float penumbra = 1.0 - smoothstep(uPlanetR * 1.03, uPlanetR * 1.5, perp);
+  float behind = 1.0 - smoothstep(-uPlanetR * 0.2, 0.0, along);
+  float shadow = 1.0 - behind * (0.97 * umbra + 0.4 * penumbra * (1.0 - umbra));
 
-  vec3 col = mix(uAccent, uKey, 0.35) * shadow;
+  // Lit face: diffuse reflection. Backlit: light diffusing through the ring,
+  // strongest where it is thin and when looking toward the light.
+  vec3 N = normalize(vNormalW);
+  vec3 V = normalize(cameraPosition - vWorldPos);
+  float ndl = dot(N, uSunDir);
+  float ndv = dot(N, V);
+  float sameSide = step(0.0, ndl * ndv);
+  float c = max(dot(-uSunDir, V), 0.0);
+  float reflected = abs(ndl) * sameSide;
+  float forward = (1.0 - sameSide) * (0.08 + 0.55 * pow(c, 8.0)) * exp(-tau * 2.0);
+  // Backlit ice glints: sparse bright grains that catch the forward lobe.
+  float sparkle = pow(ocNoise(vec3(vLocal * 190.0, uNoiseSeed)), 9.0) * 7.0;
+  forward *= 1.0 + sparkle * pow(c, 4.0);
+  // Each band has its own albedo, so the lit face reads as ring structure.
+  float albedo = 0.55 + 0.9 * ocNoise(vec3(t * 23.0, uNoiseSeed * 4.1, 0.0)) * (0.6 + 0.4 * bandMix);
+  vec3 tint = mix(uAccent, vec3(1.0, 0.92, 0.82), 0.5);
+  vec3 col = tint * (uKey * (reflected * 0.7 * albedo + forward) * shadow + uFill);
+  float alpha = tau;
   if (alpha < 0.01) discard;
-  gl_FragColor = vec4(col, alpha);
+  gl_FragColor = vec4(col * uReveal, alpha * uReveal);
 }`;
 
-/** Simple one-light shading for moons, the station and horizon-scale props. */
+/** One-light shading for the station: the anchor key plus the faint sky fill. */
 const PROP_FRAG = /* glsl */ `
 uniform vec3 uColor;
 uniform vec3 uKey;
 uniform vec3 uSunDir;
+uniform vec3 uFill;
 uniform float uRim;
+uniform float uReveal;
 varying vec3 vNormalW;
 varying vec3 vWorldPos;
 void main() {
   vec3 N = normalize(vNormalW);
   vec3 V = normalize(cameraPosition - vWorldPos);
-  float lit = smoothstep(-0.15, 0.35, dot(N, uSunDir));
-  vec3 col = uColor * uKey * (0.08 + 0.92 * lit);
-  col += uColor * pow(1.0 - max(dot(N, V), 0.0), 3.5) * uRim;
-  gl_FragColor = vec4(col, 1.0);
+  float ndl = dot(N, uSunDir);
+  vec3 col = uColor * (uKey * max(ndl, 0.0) + uFill);
+  col += uColor * uKey * pow(1.0 - max(dot(N, V), 0.0), 3.5) * uRim * smoothstep(-0.2, 0.3, ndl);
+  gl_FragColor = vec4(col * uReveal, 1.0);
 }`;
 
-/**
- * The destination planet, one feature slot per survey (ring, moon, station,
- * more moons) and the horizon giant.
- */
+/** The destination planet and one feature slot per survey (ring, moon, station, more moons). */
 export class Destination {
   /** Planet + feature slots; positioned at `center` and scaled to the disc radius. */
   readonly group = new THREE.Group();
@@ -223,17 +290,15 @@ export class Destination {
   private readonly outlineGeo: THREE.BufferGeometry;
   private readonly outlineMat: THREE.LineBasicMaterial;
   private readonly features: FeatureSlot[] = [];
-  private readonly giant: THREE.Mesh;
-  private readonly giantGeo: THREE.PlaneGeometry;
-  private readonly giantMat: THREE.ShaderMaterial;
-  private readonly giantCenter = new THREE.Vector3();
   private readonly ownedGeos: THREE.BufferGeometry[] = [];
   private seed = '';
   private worldRadius = 0;
   private elapsedS = 0;
+  private reveal = 1;
+  private readonly lightDir = new THREE.Vector3();
 
   constructor() {
-    const palette = skyPalette('idle');
+    const palette = planetPalette('idle');
 
     this.planetGeo = new THREE.PlaneGeometry(2, 2);
     this.planetMat = makeSphereMaterial(SURFACE_SHADE_GLSL, surfaceUniforms(palette, 'planet'));
@@ -245,7 +310,7 @@ export class Destination {
 
     this.propGeo = new THREE.IcosahedronGeometry(1, 2);
     this.moonMat = new THREE.ShaderMaterial({
-      uniforms: surfaceUniforms(palette, 'moon'),
+      uniforms: { ...surfaceUniforms(palette, 'moon'), uReveal: { value: 1 } },
       vertexShader: MESH_VERT,
       fragmentShader: MESH_FRAG,
     });
@@ -254,7 +319,9 @@ export class Destination {
         uColor: { value: new THREE.Color(0xc9d3e2) },
         uKey: { value: new THREE.Color(0xffffff) },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        uFill: { value: new THREE.Color() },
         uRim: { value: 0.35 },
+        uReveal: { value: 1 },
       },
       vertexShader: MESH_VERT,
       fragmentShader: PROP_FRAG,
@@ -268,10 +335,12 @@ export class Destination {
         uOuter: { value: 1.44 },
         uKey: { value: new THREE.Color(0xffffff) },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        uFill: { value: new THREE.Color() },
         uAccent: { value: palette.accent.clone() },
         uCenter: { value: this.center.clone() },
         uPlanetR: { value: 1 },
         uNoiseSeed: { value: 0 },
+        uReveal: { value: 1 },
       },
       vertexShader: RING_VERT,
       fragmentShader: RING_FRAG,
@@ -284,20 +353,8 @@ export class Destination {
     this.outlineMat = new THREE.LineBasicMaterial({ color: 0x7f8ea6, transparent: true, opacity: 0.28 });
 
     for (let i = 0; i < SLOT_COUNT; i++) this.features.push(this.makeFeature(i));
-
-    this.giantMat = makeSphereMaterial(SURFACE_SHADE_GLSL, surfaceUniforms(palette, 'giant'));
-    this.giantGeo = new THREE.PlaneGeometry(2, 2);
-    this.giant = new THREE.Mesh(this.giantGeo, this.giantMat);
-    this.giant.frustumCulled = false;
     this.group.add(...this.features.map((f) => f.group));
-    // The giant hangs in the scene root (world-positioned, unscaled by the
-    // destination's radius); GameWorld adds `horizonGiant` to the scene.
     this.setSeed('idle');
-  }
-
-  /** Horizon giant mesh; GameWorld adds it to the scene at world scale. */
-  get horizonGiant(): THREE.Mesh {
-    return this.giant;
   }
 
   private makeFeature(index: number): FeatureSlot {
@@ -342,16 +399,15 @@ export class Destination {
     return { group, lit, outline, orbit, phase: 0, speed };
   }
 
-  /** Re-bake palette, feature layout and the giant from the destination seed. */
+  /** Re-bake palette and feature layout from the destination seed. */
   setSeed(seed: string): void {
     if (seed === this.seed) return;
     this.seed = seed;
-    const palette = skyPalette(seed);
+    const palette = planetPalette(seed);
     const rnd = seededRandom(`${seed}:system`);
 
     applySurfaceUniforms(this.planetMat.uniforms, palette, 'planet');
     applySurfaceUniforms(this.moonMat.uniforms, palette, 'moon');
-    applySurfaceUniforms(this.giantMat.uniforms, palette, 'giant');
     (this.ringMat.uniforms.uAccent!.value as THREE.Color).copy(palette.accent);
     this.ringMat.uniforms.uNoiseSeed!.value = rnd() * 10;
 
@@ -379,39 +435,31 @@ export class Destination {
         (rnd() - 0.5) * 2 * MAX_PLANE_TILT,
       );
     }
-
-    // Decorative horizon giant: solved from the shot so its upper-left limb
-    // crosses the lower-right corner (58%,100%) -> (100%,52%), with a small
-    // seeded jitter. Its face stays dark; the sun-facing limb carries the arc.
-    const toPlanet = this.center.clone().sub(base);
-    const planetYaw = Math.atan2(toPlanet.x, -toPlanet.z);
-    const planetPitch = Math.atan2(toPlanet.y, Math.hypot(toPlanet.x, toPlanet.z));
-    const fovX = nominalFovX();
-    const yaw =
-      axisYaw(planetYaw, fovX, CRUISE_DEST_SCREEN.x) + GIANT_YAW_REL_RAD + (rnd() - 0.5) * 0.04;
-    const pitch =
-      axisPitch(planetPitch, NOMINAL_FOV_Y_RAD, CRUISE_DEST_SCREEN.y) +
-      GIANT_PITCH_REL_RAD +
-      (rnd() - 0.5) * 0.03;
-    const dir = new THREE.Vector3(
-      Math.sin(yaw) * Math.cos(pitch),
-      Math.sin(pitch),
-      -Math.cos(yaw) * Math.cos(pitch),
-    );
-    this.giantCenter.copy(base).addScaledVector(dir, GIANT_DISTANCE);
-    (this.giantMat.uniforms.uCenter!.value as THREE.Vector3).copy(this.giantCenter);
-    this.giantMat.uniforms.uRadius!.value = Math.sin(GIANT_ANGULAR_RAD) * GIANT_DISTANCE;
-    this.giant.renderOrder = 0;
   }
 
-  /** Key light + sun direction for every surface in the system. */
-  setLighting(lighting: { sunDir: THREE.Vector3; key: THREE.Color }): void {
-    for (const mat of [this.planetMat, this.moonMat, this.giantMat, this.stationMat]) {
+  /**
+   * The anchor's light for every surface in the system. The anchor hangs
+   * ANCHOR_DISTANCE out along `sunDir`, beyond the planet, so the system sees
+   * it from a wider angle than the fleet does: a readable crescent rather than
+   * a sliver, still one light from one place.
+   */
+  setLighting(lighting: Lighting): void {
+    this.lightDir.copy(lighting.sunDir).multiplyScalar(ANCHOR_DISTANCE).sub(this.center).normalize();
+    for (const mat of [this.planetMat, this.moonMat, this.stationMat, this.ringMat]) {
       (mat.uniforms.uKey!.value as THREE.Color).copy(lighting.key);
-      (mat.uniforms.uSunDir!.value as THREE.Vector3).copy(lighting.sunDir);
+      (mat.uniforms.uSunDir!.value as THREE.Vector3).copy(this.lightDir);
+      // A world's night side stays deep: it takes a third of the sky fill.
+      (mat.uniforms.uFill!.value as THREE.Color).copy(lighting.fillSky).multiplyScalar(0.3);
     }
-    (this.ringMat.uniforms.uKey!.value as THREE.Color).copy(lighting.key);
-    (this.ringMat.uniforms.uSunDir!.value as THREE.Vector3).copy(lighting.sunDir);
+  }
+
+  /** 0 hides the system under the hyperspace jump; it fades up from black. */
+  setReveal(k: number): void {
+    this.reveal = Math.min(1, Math.max(0, k));
+    for (const mat of [this.planetMat, this.moonMat, this.stationMat, this.ringMat]) {
+      mat.uniforms.uReveal!.value = this.reveal;
+    }
+    this.outlineMat.opacity = 0.28 * this.reveal;
   }
 
   /**
@@ -426,6 +474,7 @@ export class Destination {
     rung: number;
     dtS: number;
     camera: THREE.PerspectiveCamera;
+    viewportH: number;
   }): void {
     this.elapsedS += u.dtS;
     const distance = Math.max(1, u.camera.position.distanceTo(this.center));
@@ -443,20 +492,21 @@ export class Destination {
     this.group.scale.setScalar(this.worldRadius);
     (this.planetMat.uniforms.uCenter!.value as THREE.Vector3).copy(this.center);
     this.planetMat.uniforms.uRadius!.value = this.worldRadius;
+    // While the planet is still a point its air shell keeps a few pixels and
+    // glows harder, so it reads as a bright point that grows into a world.
+    const radiusPx = fraction * u.viewportH;
+    this.planetMat.uniforms.uHalo!.value = 1 + Math.max(ATMOSPHERE, ATMOSPHERE_MIN_PX / Math.max(radiusPx, 1));
+    this.planetMat.uniforms.uAtmoGain!.value = ATMOSPHERE_GAIN * (1 + 3 * (1 - smoothstep(10, 90, radiusPx)));
     // Perspective terms for the impostor's depth write (near/far are fixed).
     const proj = u.camera.projectionMatrix.elements;
-    for (const mat of [this.planetMat, this.giantMat]) {
-      mat.uniforms.uProjA!.value = proj[10]!;
-      mat.uniforms.uProjB!.value = proj[14]!;
-    }
+    this.planetMat.uniforms.uProjA!.value = proj[10]!;
+    this.planetMat.uniforms.uProjB!.value = proj[14]!;
 
     const octaves = u.rung >= 4 ? 3 : 7;
     this.planetMat.uniforms.uOctaves!.value = octaves;
     this.planetMat.uniforms.uTime!.value = this.elapsedS;
     this.moonMat.uniforms.uTime!.value = this.elapsedS;
     this.moonMat.uniforms.uOctaves!.value = Math.min(octaves, 4);
-    this.giantMat.uniforms.uOctaves!.value = Math.min(octaves, 5);
-    this.giantMat.uniforms.uTime!.value = this.elapsedS;
     this.ringMat.uniforms.uPlanetR!.value = this.worldRadius;
 
     const revealFeatures = u.progress > FEATURE_REVEAL_PROGRESS || u.arrivalT > 0;
@@ -503,8 +553,6 @@ export class Destination {
     this.ringMat.dispose();
     this.outlineGeo.dispose();
     this.outlineMat.dispose();
-    this.giantGeo.dispose();
-    this.giantMat.dispose();
     for (const geo of this.ownedGeos) geo.dispose();
     this.group.clear();
   }
@@ -524,9 +572,9 @@ function circleGeometry(radius: number, segments: number): THREE.BufferGeometry 
   return geo;
 }
 
-type SurfaceKind = 'planet' | 'moon' | 'giant';
+type SurfaceKind = 'planet' | 'moon';
 
-function surfaceUniforms(palette: SkyPalette, kind: SurfaceKind): Record<string, THREE.IUniform> {
+function surfaceUniforms(palette: Palette, kind: SurfaceKind): Record<string, THREE.IUniform> {
   const uniforms: Record<string, THREE.IUniform> = {
     uSea: { value: new THREE.Color() },
     uLand: { value: new THREE.Color() },
@@ -534,6 +582,7 @@ function surfaceUniforms(palette: SkyPalette, kind: SurfaceKind): Record<string,
     uAtmo: { value: new THREE.Color() },
     uKey: { value: new THREE.Color(0xffffff) },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+    uFill: { value: new THREE.Color() },
     uSeedOffset: { value: new THREE.Vector3() },
     uOctaves: { value: 7 },
     uBandFreq: { value: 9 },
@@ -541,7 +590,6 @@ function surfaceUniforms(palette: SkyPalette, kind: SurfaceKind): Record<string,
     uLandLevel: { value: 0.52 },
     uCloudAmount: { value: 0.85 },
     uAtmoGain: { value: 1.1 },
-    uNightFloor: { value: 0.1 },
     uTime: { value: 0 },
   };
   applySurfaceUniforms(uniforms, palette, kind);
@@ -549,7 +597,7 @@ function surfaceUniforms(palette: SkyPalette, kind: SurfaceKind): Record<string,
 }
 
 /** Fill the body uniforms from the palette; `u` is a material's uniform map. */
-function applySurfaceUniforms(u: Record<string, THREE.IUniform>, palette: SkyPalette, kind: SurfaceKind): void {
+function applySurfaceUniforms(u: Record<string, THREE.IUniform>, palette: Palette, kind: SurfaceKind): void {
   (u.uSea!.value as THREE.Color).copy(palette.sea);
   (u.uLand!.value as THREE.Color).copy(palette.land);
   (u.uCloud!.value as THREE.Color).copy(palette.cloud);
@@ -564,24 +612,14 @@ function applySurfaceUniforms(u: Record<string, THREE.IUniform>, palette: SkyPal
     u.uBandMix!.value = 0.25;
     u.uLandLevel!.value = 0.52;
     u.uCloudAmount!.value = 0.85;
-    u.uAtmoGain!.value = 1.1;
-    u.uNightFloor!.value = 0.1;
-  } else if (kind === 'moon') {
+    u.uAtmoGain!.value = ATMOSPHERE_GAIN;
+  } else {
     u.uBandFreq!.value = 0;
     u.uBandMix!.value = 0;
     u.uLandLevel!.value = -1;
     u.uCloudAmount!.value = 0;
-    u.uAtmoGain!.value = 0.25;
-    u.uNightFloor!.value = 0.06;
+    u.uAtmoGain!.value = 0.2;
     (u.uLand!.value as THREE.Color).copy(palette.land).lerp(palette.cloud, 0.25);
-  } else {
-    // Gas giant: heavy banding, a dark face and a bright limb arc.
-    u.uBandFreq!.value = 26;
-    u.uBandMix!.value = 0.85;
-    u.uLandLevel!.value = 1;
-    u.uCloudAmount!.value = 0.25;
-    u.uAtmoGain!.value = 2.2;
-    u.uNightFloor!.value = 0.05;
   }
 }
 

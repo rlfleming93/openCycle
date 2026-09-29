@@ -1,4 +1,4 @@
-import type { Leg, SessionEvent, SessionSnapshot, TelemetrySample } from '@opencycle/shared';
+import type { Leg, LegKind, SessionEvent, SessionSnapshot, TelemetrySample } from '@opencycle/shared';
 import { describe, expect, it } from 'vitest';
 
 import type { AppState } from '../store.js';
@@ -429,6 +429,28 @@ describe('destination, surveys and legKind', () => {
     const state = makeState({ session: session([rider({ legs, legIndex: null })]) });
     expect(createGameDirector(() => state).sample(0).legKind).toBeNull();
   });
+
+  it("reads the session age off the lead rider's mission clock", () => {
+    // The destination's lead paces the jump, not rider 0.
+    const voyage = makeState({
+      session: session(
+        [
+          rider({ riderId: 'r1', workoutClockS: 600, elapsedS: 600 }),
+          rider({ riderId: 'r2', workoutClockS: 4, elapsedS: 30 }),
+        ],
+        { destination: { ...destination, leadRiderId: 'r2' } },
+      ),
+    });
+    expect(createGameDirector(() => voyage).sample(0).sessionAgeS).toBe(4);
+    // No workout clock (free ride, or a finished workout): elapsed riding time.
+    const free = makeState({ session: session([rider({ workoutClockS: null, elapsedS: 7 })]) });
+    expect(createGameDirector(() => free).sample(0).sessionAgeS).toBe(7);
+    // The lead left the snapshot: no clock to read.
+    const leadGone = makeState({
+      session: session([rider({ riderId: 'r1', workoutClockS: 3 })], { destination: { ...destination, leadRiderId: 'r9' } }),
+    });
+    expect(createGameDirector(() => leadGone).sample(0).sessionAgeS).toBeNull();
+  });
 });
 
 describe('event drain', () => {
@@ -669,6 +691,108 @@ describe('rider lifecycle and frame shape', () => {
     expect(frame.surveys).toEqual({ total: 0, revealed: 0 });
     expect(frame.legKind).toBeNull();
     expect(frame.syncLit).toBe(false);
+    expect(frame.pursuit).toBeNull();
+    expect(frame.sessionAgeS).toBeNull();
+  });
+});
+
+describe('inBand and pursuit', () => {
+  const destination = { seed: 'r1:voyage:0', name: 'Keinora', voyageIndex: 0, leadRiderId: 'r1' };
+  const burnLegs = [
+    leg({ index: 0, kind: 'launch', objective: false }),
+    leg({ index: 1, kind: 'burn', objective: true }),
+  ];
+
+  it('marks a rider in band only when riding, live, unguarded and on target', () => {
+    const mk = (powerW: number, over: Partial<SessionSnapshot['riders'][number]> = {}) =>
+      makeState({
+        session: session([rider({ targetW: 200, legs: burnLegs, legIndex: 1, ...over })]),
+        latest: { r1: sample({ powerW, cadenceRpm: 88 }) },
+      });
+    expect(createGameDirector(() => mk(200)).sample(0).riders[0]!.inBand).toBe(true);
+    expect(createGameDirector(() => mk(180)).sample(0).riders[0]!.inBand).toBe(true); // 0.9 edge
+    expect(createGameDirector(() => mk(220)).sample(0).riders[0]!.inBand).toBe(true); // 1.1 edge
+    expect(createGameDirector(() => mk(170)).sample(0).riders[0]!.inBand).toBe(false);
+    expect(createGameDirector(() => mk(230)).sample(0).riders[0]!.inBand).toBe(false);
+    expect(createGameDirector(() => mk(200, { ergGuardActive: true })).sample(0).riders[0]!.inBand).toBe(false);
+    expect(createGameDirector(() => mk(200, { state: 'paused' })).sample(0).riders[0]!.inBand).toBe(false);
+    expect(createGameDirector(() => mk(200, { targetW: null })).sample(0).riders[0]!.inBand).toBe(false);
+    const noSample = makeState({ session: session([rider({ targetW: 200, legs: burnLegs, legIndex: 1 })]) });
+    expect(createGameDirector(() => noSample).sample(0).riders[0]!.inBand).toBe(false);
+  });
+
+  it("reports the pursuit on the lead rider's burn legs, with a locked meter", () => {
+    const mk = (over: Partial<SessionSnapshot['riders'][number]>) =>
+      makeState({
+        session: session([rider({ targetW: 200, legs: burnLegs, legIndex: 1, ...over })], { destination }),
+      });
+    // targeted below the settle floor: no lock yet.
+    const early = createGameDirector(() => mk({ legTargetedS: 4, legOnTargetS: 4 })).sample(0);
+    expect(early.pursuit).toEqual({ active: true, legIndex: 1, lock: 0 });
+    // targeted past 5 s: lock = onTarget / targeted.
+    const holding = createGameDirector(() => mk({ legTargetedS: 40, legOnTargetS: 30 })).sample(0);
+    expect(holding.pursuit).toEqual({ active: true, legIndex: 1, lock: 0.75 });
+    // Coast leg: no pursuit.
+    const coasting = createGameDirector(() =>
+      makeState({
+        session: session(
+          [rider({ targetW: 200, legs: [leg({ index: 0, kind: 'coast', objective: false })], legIndex: 0 })],
+          { destination },
+        ),
+      }),
+    ).sample(0);
+    expect(coasting.pursuit).toBeNull();
+    // Free ride: no voyage, no pursuit.
+    const free = createGameDirector(() =>
+      makeState({ session: session([rider({ workoutId: undefined, legs: burnLegs, legIndex: 1 })]) }),
+    ).sample(0);
+    expect(free.pursuit).toBeNull();
+  });
+
+  it("resolves the raider for the lead rider's burn legs only", () => {
+    const ev = (riderId: string, clean: boolean, legKind: LegKind = 'burn') =>
+      legEvent(riderId, 1000, { legIndex: 1, legKind, clean });
+    const voyage = (riders: SessionSnapshot['riders']) => makeState({ session: session(riders, { destination }) });
+
+    // Lead clean burn → down.
+    const downState = voyage([rider({ legs: burnLegs, legIndex: 1 })]);
+    downState.events = [ev('r1', true)];
+    expect(createGameDirector(() => downState).sample(5000).events).toEqual([
+      { kind: 'legComplete', riderId: 'r1', clean: true, legKind: 'burn' },
+      { kind: 'raider', outcome: 'down', legIndex: 1 },
+    ]);
+
+    // Lead unclean burn → escaped.
+    const escapedState = voyage([rider({ legs: burnLegs, legIndex: 1 })]);
+    escapedState.events = [ev('r1', false)];
+    expect(createGameDirector(() => escapedState).sample(5000).events).toEqual([
+      { kind: 'legComplete', riderId: 'r1', clean: false, legKind: 'burn' },
+      { kind: 'raider', outcome: 'escaped', legIndex: 1 },
+    ]);
+
+    // A wingman's burn does not resolve the lead's pursuit.
+    const wing = voyage([
+      rider({ legs: burnLegs, legIndex: 1 }),
+      rider({ riderId: 'r2', legs: burnLegs, legIndex: 1 }),
+    ]);
+    wing.events = [ev('r2', true)];
+    expect(createGameDirector(() => wing).sample(5000).events).toEqual([
+      { kind: 'legComplete', riderId: 'r2', clean: true, legKind: 'burn' },
+    ]);
+
+    // Non-burn legs never resolve a raider.
+    const coast = voyage([rider({ legs: burnLegs, legIndex: 1 })]);
+    coast.events = [ev('r1', true, 'climb')];
+    expect(createGameDirector(() => coast).sample(5000).events).toEqual([
+      { kind: 'legComplete', riderId: 'r1', clean: true, legKind: 'climb' },
+    ]);
+
+    // Free rides have no pursuit to resolve.
+    const free = makeState({ session: session([rider({ workoutId: undefined, legs: burnLegs, legIndex: 1 })]) });
+    free.events = [ev('r1', true)];
+    expect(createGameDirector(() => free).sample(5000).events).toEqual([
+      { kind: 'legComplete', riderId: 'r1', clean: true, legKind: 'burn' },
+    ]);
   });
 });
 

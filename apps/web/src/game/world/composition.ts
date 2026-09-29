@@ -4,8 +4,8 @@ import { radians } from './math.js';
 
 /**
  * The shot: one source of truth for where the fleet, the destination system and
- * the decorative horizon giant sit relative to the chase camera. cameraRig.ts
- * and planets.ts both read it, so the composition cannot drift apart.
+ * the celestial anchor sit relative to the chase camera. cameraRig.ts,
+ * planets.ts and anchor.ts all read it, so the composition cannot drift apart.
  *
  * Solved geometry (1920x1080, 42 deg vertical FOV):
  *  - fleet lead: 24 units from the camera at 20 deg azimuth (camera to port)
@@ -25,11 +25,12 @@ export const CRUISE_DEST_SCREEN = { x: 0.62, y: 0.33 } as const;
 export const ARRIVAL_DEST_SCREEN = { x: 0.56, y: 0.42 } as const;
 /** Destination distance is fixed; the disc is scaled to the progress curve. */
 export const PLANET_DISTANCE = 2600;
-/** Decorative horizon giant: only its upper-left limb crosses the corner. */
-export const GIANT_DISTANCE = 4200;
-export const GIANT_YAW_REL_RAD = radians(36);
-export const GIANT_PITCH_REL_RAD = radians(-30);
-export const GIANT_ANGULAR_RAD = radians(21.5);
+/**
+ * Anchor core mark in the chase shot: upper right, below the route strip and
+ * right of the destination, so its disk or halo may crop at the frame edge and
+ * at arrival the swollen planet sits in front of it.
+ */
+export const ANCHOR_SCREEN = { x: 0.8, y: 0.27 } as const;
 
 /** Nominal FOV the shot was solved at (weather moves it by at most 3 deg). */
 export const NOMINAL_FOV_Y_RAD = radians(42);
@@ -39,13 +40,21 @@ export function nominalFovX(): number {
   return 2 * Math.atan(Math.tan(NOMINAL_FOV_Y_RAD / 2) * NOMINAL_ASPECT);
 }
 
-/** Camera position relative to the fleet lead (-X port, +Y up, +Z aft). */
-export function rigOffset(out: THREE.Vector3): THREE.Vector3 {
-  const horizontal = RIG_DISTANCE * Math.cos(RIG_ELEVATION_RAD);
+/**
+ * Camera position relative to its anchor (-X port, +Y up, +Z aft).
+ * Defaults are the default chase pose; the rig passes its setup's pose.
+ */
+export function rigOffset(
+  out: THREE.Vector3,
+  azimuth = RIG_AZIMUTH_RAD,
+  elevation = RIG_ELEVATION_RAD,
+  distance = RIG_DISTANCE,
+): THREE.Vector3 {
+  const horizontal = distance * Math.cos(elevation);
   return out.set(
-    -horizontal * Math.sin(RIG_AZIMUTH_RAD),
-    RIG_DISTANCE * Math.sin(RIG_ELEVATION_RAD),
-    horizontal * Math.cos(RIG_AZIMUTH_RAD),
+    -horizontal * Math.sin(azimuth),
+    distance * Math.sin(elevation),
+    horizontal * Math.cos(azimuth),
   );
 }
 
@@ -102,6 +111,18 @@ export function nominalAxisDirection(out: THREE.Vector3): THREE.Vector3 {
     .copy(toPlanet)
     .addScaledVector(right, -(2 * CRUISE_DEST_SCREEN.x - 1) * Math.tan(fovX / 2))
     .addScaledVector(up, -(1 - 2 * CRUISE_DEST_SCREEN.y) * Math.tan(NOMINAL_FOV_Y_RAD / 2))
+    .normalize();
+}
+
+/** World direction that lands on screen point (x, y) in the nominal chase pose. */
+export function chaseDirection(x: number, y: number, out: THREE.Vector3): THREE.Vector3 {
+  const axis = nominalAxisDirection(new THREE.Vector3());
+  const right = new THREE.Vector3().crossVectors(axis, UP).normalize();
+  const up = new THREE.Vector3().crossVectors(right, axis).normalize();
+  return out
+    .copy(axis)
+    .addScaledVector(right, (2 * x - 1) * Math.tan(nominalFovX() / 2))
+    .addScaledVector(up, (1 - 2 * y) * Math.tan(NOMINAL_FOV_Y_RAD / 2))
     .normalize();
 }
 

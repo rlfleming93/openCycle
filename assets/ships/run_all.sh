@@ -19,7 +19,7 @@ else
   read -r -a HULLS <<<"$(python3 -c "
 import sys; sys.path.insert(0, '$HERE')
 import fleet_config as C
-print(' '.join(C.FLEET))
+print(' '.join(C.BUILD_ORDER))
 ")"
 fi
 

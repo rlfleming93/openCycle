@@ -4,6 +4,7 @@ import type { LegKind } from '@opencycle/shared';
 
 import type { GameFrame } from '../director.js';
 import { CRUISE_DEST_SCREEN } from './composition.js';
+import { AMBIENT_GLSL } from './glsl.js';
 import { clamp01, lerp } from './math.js';
 import type { Lighting } from './sky.js';
 
@@ -13,10 +14,12 @@ import type { Lighting } from './sky.js';
  * either side of the flight path. The fleet stays put; this volume recycles
  * past it at the frame's speed.
  *
- * Streaks are placed in *camera space* rather than a world box: their length is
- * solved from the depth so they never exceed STREAK_MAX_SCREEN_FRACTION of the
- * viewport height, and a protected ellipse in the middle of the frame (plus the
- * destination's own disc) is rejected at spawn, so the planet stays legible.
+ * Particles are spawned in the camera's frustum but live in world space, so
+ * the camera sliding with the fleet's weave reads as parallax. Streak length
+ * is solved from the depth so it never exceeds STREAK_MAX_SCREEN_FRACTION of
+ * the viewport height, and a protected ellipse in the middle of the frame
+ * (plus the destination's own disc) is rejected at spawn, so the planet stays
+ * legible.
  */
 const STREAK_COUNT = 420;
 const DUST_COUNT = 700;
@@ -97,22 +100,29 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 
-/** Key-lit dark rock with a faint rim, so the rocks read without a light rig. */
+/**
+ * Key-lit dark rock with the sky's fill, a faint key-tinted rim, and a back
+ * light: with the key behind a rock its silhouette catches it, so the dark
+ * side never reads as a cut-out.
+ */
 const ROCK_FRAG = /* glsl */ `
 uniform vec3 uColor;
 uniform vec3 uKeyColor;
 uniform vec3 uSunDir;
-uniform vec3 uFillSky;
-uniform vec3 uFillGround;
-uniform float uRim;
+uniform vec3 uAmbient[6];
+uniform vec3 uRimColor;
+uniform float uBack;
+${AMBIENT_GLSL}
 varying vec3 vNormalW;
 varying vec3 vWorldPos;
 void main() {
   vec3 N = normalize(vNormalW);
   vec3 V = normalize(cameraPosition - vWorldPos);
-  float lit = smoothstep(-0.25, 0.35, dot(N, uSunDir));
-  vec3 col = uColor * (uKeyColor * (0.08 + 1.1 * lit) + 0.35 * mix(uFillGround, uFillSky, N.y * 0.5 + 0.5));
-  col += uFillSky * pow(1.0 - max(dot(N, V), 0.0), 4.0) * uRim;
+  float lit = max(dot(N, uSunDir), 0.0);
+  vec3 col = uColor * (uKeyColor * 1.1 * lit + ocAmbient(N, uAmbient));
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+  float back = max(dot(-V, uSunDir), 0.0) * (0.3 + 0.7 * smoothstep(-0.4, 0.4, dot(N, uSunDir)));
+  col += (uRimColor + uKeyColor * back * uBack) * fres;
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -161,6 +171,9 @@ export class Field {
   private baseRung = 0;
   private lastActive = 0;
   private elapsedS = 0;
+  /** False until the first update fills the volume. */
+  private primed = false;
+  private boostMs = -1;
 
   constructor() {
     const rnd = mulberry32(hashSeed('opencycle:field'));
@@ -226,9 +239,9 @@ export class Field {
         uColor: { value: new THREE.Color(0x5d6169) },
         uKeyColor: { value: new THREE.Color(0xffffff) },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
-        uFillSky: { value: new THREE.Color(0x2b3a5c) },
-        uFillGround: { value: new THREE.Color(0x05070c) },
-        uRim: { value: 0.4 },
+        uAmbient: { value: Array.from({ length: 6 }, () => new THREE.Color()) },
+        uRimColor: { value: new THREE.Color() },
+        uBack: { value: 0.35 },
       },
       vertexShader: ROCK_VERT,
       fragmentShader: ROCK_FRAG,
@@ -254,32 +267,49 @@ export class Field {
     this.group.add(streakLines, dustPoints, this.rocks);
   }
 
-  /** Key light + rung-dependent counts. */
+  /** Key light, sky fill (bound by reference: it updates in place) and rim. */
   setLighting(lighting: Lighting): void {
     (this.rockMat.uniforms.uKeyColor!.value as THREE.Color).copy(lighting.key);
     (this.rockMat.uniforms.uSunDir!.value as THREE.Vector3).copy(lighting.sunDir);
-    (this.rockMat.uniforms.uFillSky!.value as THREE.Color).copy(lighting.fillSky);
-    (this.rockMat.uniforms.uFillGround!.value as THREE.Color).copy(lighting.fillGround);
+    (this.rockMat.uniforms.uRimColor!.value as THREE.Color).copy(lighting.rim);
+    this.rockMat.uniforms.uAmbient!.value = lighting.ambient;
   }
 
   setRung(rung: number): void {
     this.baseRung = rung;
   }
 
+  /** Burn-start boost: a burst of speed dust. */
+  boost(nowMs: number): void {
+    this.boostMs = nowMs;
+  }
+
   /**
-   * Stream the field past the camera. `legKind` sets the asteroid density and
-   * `orbit` fades the streaks to a near-stop during the arrival hold.
+   * Stream the field past the camera. Particles live in world space, so the
+   * camera sliding with the fleet's weave shows as parallax; they stream aft
+   * along the camera axis and respawn ahead once they pass or drift out of
+   * view. `legKind` sets the asteroid density, `orbit` slows everything to a
+   * drift for the arrival hold, and `cut` refills the volume after a hard cut.
    */
   update(
     frame: GameFrame,
+    nowMs: number,
     dtS: number,
     camera: THREE.PerspectiveCamera,
     legKind: LegKind | null,
     orbit: boolean,
+    cut: boolean,
   ): void {
     this.elapsedS += dtS;
-    const speed = lerp(12, 60, clamp01(frame.shipSpeed)) * (0.8 + 0.4 * frame.weather) * (orbit ? 0.1 : 1);
+    const burstS = this.boostMs < 0 ? Infinity : (nowMs - this.boostMs) / 1000;
+    const burst = burstS < 1.4 ? (1 - burstS / 1.4) * (1 - burstS / 1.4) : 0;
+    const speed = lerp(12, 60, clamp01(frame.shipSpeed)) * (0.8 + 0.4 * frame.weather) * (orbit ? 0.1 : 1) * (1 + 3 * burst);
     this.captureBasis(camera);
+    const refill = cut || !this.primed;
+    this.primed = true;
+    const F = this.basis.forward;
+    const step = speed * dtS;
+    const c = this.scratchA;
 
     const half = this.baseRung >= 2 ? 0.5 : 1;
     const streakCount = Math.max(0, Math.round(STREAK_COUNT * half * (orbit ? 0.15 : 1)));
@@ -287,51 +317,47 @@ export class Field {
     // A z-extent at an off-axis position stretches with the perspective divide,
     // so the length is solved from the NDC extent instead of the depth: the
     // visible length never exceeds STREAK_MAX_SCREEN_FRACTION of the height.
-    const maxNdcExtent = STREAK_MAX_SCREEN_FRACTION * 2;
+    const maxNdcExtent = STREAK_MAX_SCREEN_FRACTION * 2 * (1 + 1.5 * burst);
     for (let i = 0; i < streakCount; i++) {
       const p = this.streaks[i]!;
-      // Positions live in camera space: x/y are lateral offsets and z is a
-      // negative depth ahead of the camera.
-      p.z += speed * dtS;
-      if (p.z > -STREAK_MIN_DEPTH * 0.6) {
-        this.spawnPoint(p);
-        p.z = -STREAK_MAX_DEPTH * (0.35 + Math.random() * 0.65);
+      this.advance(p, F, step);
+      this.toCamera(p, c);
+      if (refill || c.z > -STREAK_MIN_DEPTH * 0.6 || this.outOfView(c, 1.4)) {
+        const dz = refill ? lerp(STREAK_MIN_DEPTH, STREAK_MAX_DEPTH, Math.random()) : STREAK_MAX_DEPTH * (0.35 + Math.random() * 0.65);
+        this.spawnPoint(c, dz);
+        this.toWorld(c, p);
       }
-      const depth = -p.z;
-      const ax = Math.abs(p.x) / (this.basis.tanHalfX * depth * depth) * this.aspect;
-      const ay = Math.abs(p.y) / (this.basis.tanHalfY * depth * depth);
-      const ndcPerUnit = Math.hypot(ax, ay);
-      const len = Math.min(depth * 0.35, maxNdcExtent / Math.max(ndcPerUnit, 1e-6));
-      const head = this.toWorld(p, this.scratchA);
-      const tail = this.toWorld(this.scratchB.set(p.x, p.y, p.z - len), this.scratchB);
+      const depth = -c.z;
+      const ax = (Math.abs(c.x) / (this.basis.tanHalfX * depth * depth)) * this.aspect;
+      const ay = Math.abs(c.y) / (this.basis.tanHalfY * depth * depth);
+      const len = Math.min(depth * 0.35, maxNdcExtent / Math.max(Math.hypot(ax, ay), 1e-6));
       const a = i * 6;
-      this.streakPos[a] = tail.x;
-      this.streakPos[a + 1] = tail.y;
-      this.streakPos[a + 2] = tail.z;
-      this.streakPos[a + 3] = head.x;
-      this.streakPos[a + 4] = head.y;
-      this.streakPos[a + 5] = head.z;
+      this.streakPos[a] = p.x + F.x * len;
+      this.streakPos[a + 1] = p.y + F.y * len;
+      this.streakPos[a + 2] = p.z + F.z * len;
+      this.streakPos[a + 3] = p.x;
+      this.streakPos[a + 4] = p.y;
+      this.streakPos[a + 5] = p.z;
     }
     this.streakGeo.getAttribute('position').needsUpdate = true;
-    this.streakMat.opacity = (0.1 + 0.22 * clamp01(frame.shipSpeed)) * (orbit ? 0.15 : 1);
+    this.streakMat.opacity = (0.1 + 0.22 * clamp01(frame.shipSpeed)) * (orbit ? 0.15 : 1) * (1 + 1.2 * burst);
 
     const dustCount = Math.max(0, Math.round(DUST_COUNT * half));
     this.dustGeo.setDrawRange(0, dustCount);
     for (let i = 0; i < dustCount; i++) {
       const p = this.dust[i]!;
-      p.z += speed * dtS * 0.85;
-      if (p.z > -DUST_DEPTH_MIN * 0.5) {
-        const spawn = this.spawnVolume(p, DUST_HALF_X, DUST_HALF_Y, DUST_DEPTH_MIN, DUST_DEPTH_MAX);
-        p.x = spawn.x;
-        p.y = spawn.y;
-        p.z = spawn.z;
+      this.advance(p, F, step * 0.85);
+      this.toCamera(p, c);
+      if (refill || c.z > -DUST_DEPTH_MIN * 0.5 || this.outOfView(c, 1.3)) {
+        this.spawnVolume(c, DUST_HALF_X, DUST_HALF_Y, refill ? DUST_DEPTH_MIN : DUST_DEPTH_MAX * 0.55, DUST_DEPTH_MAX);
+        this.toWorld(c, p);
       }
-      const world = this.toWorld(p, this.scratchA);
-      this.dustPos[i * 3] = world.x;
-      this.dustPos[i * 3 + 1] = world.y;
-      this.dustPos[i * 3 + 2] = world.z;
+      this.dustPos[i * 3] = p.x;
+      this.dustPos[i * 3 + 1] = p.y;
+      this.dustPos[i * 3 + 2] = p.z;
     }
     this.dustGeo.getAttribute('position').needsUpdate = true;
+    this.dustMat.uniforms.uOpacity!.value = 0.28 * (1 + 1.5 * burst);
 
     // Asteroid density follows the leg kind; rung 2 halves the field again.
     const density = ASTEROID_DENSITY[legKind ?? 'free'];
@@ -339,26 +365,16 @@ export class Field {
     this.rocks.count = active;
     for (let i = 0; i < active; i++) {
       const rock = this.rockData[i]!;
-      if (i >= this.lastActive) {
-        const spawn = this.spawnBelt(rock);
-        rock.x = spawn.x;
-        rock.y = spawn.y;
-        rock.z = spawn.z;
-      }
-      rock.z += speed * dtS * 0.55;
-      const depth = Math.max(1, -rock.z);
-      const su = rock.x / (this.basis.tanHalfX * depth);
-      const sv = rock.y / (this.basis.tanHalfY * depth);
-      if (rock.z > -RECYCLE_BEHIND || Math.abs(su) > 1.5 || Math.abs(sv) > 1.5) {
-        const spawn = this.spawnBelt(rock);
-        rock.x = spawn.x;
-        rock.y = spawn.y;
-        rock.z = spawn.z;
+      this.advance(rock, F, step * 0.55);
+      this.toCamera(rock, c);
+      const fresh = refill || i >= this.lastActive;
+      if (fresh || c.z > -RECYCLE_BEHIND || this.outOfView(c, 1.5)) {
+        this.spawnBelt(c, !fresh);
+        this.toWorld(c, rock);
       }
       const spin = this.rockSpin[i]!;
-      const world = this.toWorld(rock, this.scratchA);
       const d = this.dummy;
-      d.position.copy(world);
+      d.position.set(rock.x, rock.y, rock.z);
       d.rotation.set(spin.x + this.elapsedS * 0.05, spin.y + this.elapsedS * 0.04, spin.z);
       d.scale.setScalar(this.rockSize[i]!);
       d.updateMatrix();
@@ -368,7 +384,7 @@ export class Field {
     this.lastActive = active;
   }
 
-  /** Cache the camera basis: the field lives in camera space. */
+  /** Cache the camera basis: spawning and recycling happen in it. */
   private captureBasis(camera: THREE.PerspectiveCamera): void {
     this.basis.pos.copy(camera.position);
     camera.getWorldDirection(this.basis.forward);
@@ -380,82 +396,97 @@ export class Field {
     this.aspect = camera.aspect;
   }
 
-  /** Camera-space (lateral, lateral, -depth) -> world. Aliasing-safe: `out`
-   *  may be the same object as `p`. */
-  private toWorld(p: Particle, out: THREE.Vector3): THREE.Vector3 {
+  /** Stream a world-space particle aft along the camera axis. */
+  private advance(p: Particle, forward: THREE.Vector3, step: number): void {
+    p.x -= forward.x * step;
+    p.y -= forward.y * step;
+    p.z -= forward.z * step;
+  }
+
+  /** World -> camera space (lateral, lateral, -depth). */
+  private toCamera(p: Particle, out: THREE.Vector3): THREE.Vector3 {
+    const b = this.basis;
+    const dx = p.x - b.pos.x;
+    const dy = p.y - b.pos.y;
+    const dz = p.z - b.pos.z;
+    return out.set(
+      dx * b.right.x + dy * b.right.y + dz * b.right.z,
+      dx * b.up.x + dy * b.up.y + dz * b.up.z,
+      -(dx * b.forward.x + dy * b.forward.y + dz * b.forward.z),
+    );
+  }
+
+  /** Camera space -> world, into `out` (a Particle or a vector; may alias `p`). */
+  private toWorld(p: Particle, out: Particle): void {
+    const b = this.basis;
     const px = p.x;
     const py = p.y;
     const pz = p.z;
-    return out
-      .copy(this.basis.pos)
-      .addScaledVector(this.basis.forward, -pz)
-      .addScaledVector(this.basis.right, px)
-      .addScaledVector(this.basis.up, py);
+    out.x = b.pos.x - b.forward.x * pz + b.right.x * px + b.up.x * py;
+    out.y = b.pos.y - b.forward.y * pz + b.right.y * px + b.up.y * py;
+    out.z = b.pos.z - b.forward.z * pz + b.right.z * px + b.up.z * py;
+  }
+
+  private outOfView(c: Particle, margin: number): boolean {
+    const depth = Math.max(1, -c.z);
+    return Math.abs(c.x) > margin * this.basis.tanHalfX * depth || Math.abs(c.y) > margin * this.basis.tanHalfY * depth;
   }
 
   /**
-   * A streak spawn that keeps the middle of the frame clear: lateral offsets
-   * are drawn in frame-scaled units and rejected inside the protected ellipse
-   * around the centre and around the destination's mark.
+   * A streak spawn at depth `dz` that keeps the middle of the frame clear:
+   * lateral offsets are drawn in frame-scaled units and rejected inside the
+   * protected ellipse around the centre and around the destination's mark.
    */
-  private spawnPoint(into: Particle): Particle {
+  private spawnPoint(into: Particle, dz: number): void {
     const destU = 2 * CRUISE_DEST_SCREEN.x - 1;
     const destV = 1 - 2 * CRUISE_DEST_SCREEN.y;
+    into.z = -dz;
     for (let attempt = 0; attempt < 6; attempt++) {
-      const dz = STREAK_MIN_DEPTH + Math.random() * (STREAK_MAX_DEPTH - STREAK_MIN_DEPTH);
-      const u = (Math.random() * 2 - 1) * 1.35 * this.basis.tanHalfX * dz;
-      const v = (Math.random() * 2 - 1) * 1.35 * this.basis.tanHalfY * dz;
-      const su = u / (this.basis.tanHalfX * dz);
-      const sv = v / (this.basis.tanHalfY * dz);
-      const nearCentre = Math.hypot(su, sv) < CENTRE_CLEAR;
-      const nearDest = Math.hypot(su - destU, sv - destV) < DEST_CLEAR;
-      if (nearCentre || nearDest) continue;
-      into.x = u;
-      into.y = v;
-      return into;
+      const su = (Math.random() * 2 - 1) * 1.35;
+      const sv = (Math.random() * 2 - 1) * 1.35;
+      if (Math.hypot(su, sv) < CENTRE_CLEAR || Math.hypot(su - destU, sv - destV) < DEST_CLEAR) continue;
+      into.x = su * this.basis.tanHalfX * dz;
+      into.y = sv * this.basis.tanHalfY * dz;
+      return;
     }
     // Fallback: push well out to the side of the frame.
-    into.x = (Math.random() < 0.5 ? -1 : 1) * (0.9 + Math.random() * 0.5) * this.basis.tanHalfX * STREAK_MAX_DEPTH;
-    into.y = (Math.random() * 2 - 1) * this.basis.tanHalfY * STREAK_MAX_DEPTH;
-    return into;
+    into.x = (Math.random() < 0.5 ? -1 : 1) * (0.9 + Math.random() * 0.4) * this.basis.tanHalfX * dz;
+    into.y = (Math.random() * 2 - 1) * this.basis.tanHalfY * dz;
   }
 
   /** A dust spawn anywhere in the forward volume. */
-  private spawnVolume(into: Particle, halfX: number, halfY: number, minDepth: number, maxDepth: number): Particle {
+  private spawnVolume(into: Particle, halfX: number, halfY: number, minDepth: number, maxDepth: number): void {
     const dz = minDepth + Math.random() * (maxDepth - minDepth);
     into.x = (Math.random() * 2 - 1) * halfX * this.basis.tanHalfX * dz;
     into.y = (Math.random() * 2 - 1) * halfY * this.basis.tanHalfY * dz;
     into.z = -dz;
-    return into;
   }
 
-  /** Asteroid spawn in one of the two side belts, never in front of the system. */
-  private spawnBelt(into: Particle): Particle {
+  /**
+   * Asteroid spawn in one of the two side belts, never in front of the
+   * system; `far` respawns a recycled rock deep ahead so it never pops in.
+   */
+  private spawnBelt(into: Particle, far: boolean): void {
     for (let attempt = 0; attempt < 6; attempt++) {
       // Biased away from the camera: a 3 u rock at 45 u already covers ~120 px.
-      const dz = ASTEROID_DEPTH_MIN + Math.pow(Math.random(), 0.85) * (ASTEROID_DEPTH_MAX - ASTEROID_DEPTH_MIN);
+      const dz = far
+        ? lerp(ASTEROID_DEPTH_MAX * 0.7, ASTEROID_DEPTH_MAX, Math.random())
+        : ASTEROID_DEPTH_MIN + Math.pow(Math.random(), 0.85) * (ASTEROID_DEPTH_MAX - ASTEROID_DEPTH_MIN);
       const side = Math.random() < 0.5 ? -1 : 1;
-      const belt = BELT_INNER + Math.random() * (BELT_OUTER - BELT_INNER);
-      const u = side * belt * this.basis.tanHalfX * dz;
-      const v = (Math.random() * 2 - 1) * BELT_HALF_Y * this.basis.tanHalfY * dz;
-      const su = u / (this.basis.tanHalfX * dz);
-      const sv = v / (this.basis.tanHalfY * dz);
-      const dU = su - (2 * 0.62 - 1);
-      const dV = sv + (2 * 0.33 - 1);
-      if (Math.hypot(dU, dV) < DEST_CLEAR) continue;
-      into.x = u;
-      into.y = v;
+      const su = side * (BELT_INNER + Math.random() * (BELT_OUTER - BELT_INNER));
+      const sv = (Math.random() * 2 - 1) * BELT_HALF_Y;
+      if (Math.hypot(su - (2 * CRUISE_DEST_SCREEN.x - 1), sv - (1 - 2 * CRUISE_DEST_SCREEN.y)) < DEST_CLEAR) continue;
+      into.x = su * this.basis.tanHalfX * dz;
+      into.y = sv * this.basis.tanHalfY * dz;
       into.z = -dz;
-      return into;
+      return;
     }
     into.x = (Math.random() < 0.5 ? -1 : 1) * BELT_INNER * this.basis.tanHalfX * ASTEROID_DEPTH_MAX;
     into.y = 0;
     into.z = -ASTEROID_DEPTH_MAX;
-    return into;
   }
 
   private readonly scratchA = new THREE.Vector3();
-  private readonly scratchB = new THREE.Vector3();
 
   dispose(): void {
     this.streakGeo.dispose();
