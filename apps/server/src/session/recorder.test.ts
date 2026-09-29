@@ -183,8 +183,9 @@ describe('Recorder', () => {
     // localTimestamp carries the machine's UTC offset: local - timestamp == -getTimezoneOffset() * 60.
     // (fitsdk's loose mesg typings resolve localTimestamp as unknown under NodeNext + skipLibCheck)
     const localTimestamp = activity.localTimestamp as number;
+    // `0 -` keeps a UTC offset at +0 (toBe uses Object.is, and -0 !== +0 there).
     expect(localTimestamp - Utils.convertDateToDateTime(activity.timestamp as Date)).toBe(
-      -new Date(endedAt).getTimezoneOffset() * 60,
+      0 - new Date(endedAt).getTimezoneOffset() * 60,
     );
 
     expect(messages.eventMesgs!.map((e) => [e.event, e.eventType])).toEqual([
