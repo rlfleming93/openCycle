@@ -2,6 +2,7 @@ import type { LegKind } from '@opencycle/shared';
 import * as THREE from 'three';
 
 import type { GameFrame } from '../director.js';
+import { TRAVEL_DIR } from './composition.js';
 import { clamp01, damp, easeOutCubic, smoothstep } from './math.js';
 
 /**
@@ -128,9 +129,10 @@ void main() {
 }`;
 
 /**
- * Supercruise edge dust: long streaks racing out from the vanishing point, only
- * in the left and right bands between the route strip and the rider cards
- * (the destination sits well inside them). Post adds the edge warp.
+ * Supercruise edge dust: long streaks racing out from the travel vanishing
+ * point, only in the right-hand band between the route strip and the rider
+ * card (the workout sidebar holds the left edge; the destination sits well
+ * inside the band). Post adds the edge warp.
  */
 const EDGE_FRAG = /* glsl */ `
 uniform float uTime;
@@ -142,7 +144,7 @@ ${HASH_GLSL}
 void main() {
   float sx = vNdc.x * 0.5 + 0.5;
   float sy = 0.5 - vNdc.y * 0.5;
-  float band = max(smoothstep(0.17, 0.03, sx), smoothstep(0.83, 0.97, sx)) * smoothstep(0.16, 0.23, sy) * smoothstep(0.57, 0.49, sy);
+  float band = smoothstep(0.83, 0.97, sx) * smoothstep(0.16, 0.23, sy) * smoothstep(0.57, 0.49, sy);
   if (band < 0.001) discard;
   vec2 p = vNdc - uCenter;
   p.x *= uAspect;
@@ -157,7 +159,14 @@ void main() {
   gl_FragColor = vec4(vec3(0.62, 0.8, 1.0) * streak * 0.7 * uLevel * band, 1.0);
 }`;
 
-/** Exit/drop flash: a centre bloom on the jump point, falling off to black at the frame edges. */
+/**
+ * Every flash (jump-in, exit, arrival drop): a white-hot glare on the jump
+ * point, bright only in the middle of the frame. `r` runs in half frame
+ * heights. The glow falls off exponentially, which the filmic curve turns into
+ * an even fade on screen, and is windowed out by 0.82, inside the nearest frame
+ * edge (0.8-0.84 from the exit and drop centres), so the edges and the HUD
+ * never wash out; the peak stays under the lens's streak threshold.
+ */
 const FLASH_FRAG = /* glsl */ `
 uniform float uLevel;
 uniform float uAspect;
@@ -166,8 +175,9 @@ varying vec2 vNdc;
 void main() {
   vec2 p = vNdc - uCenter;
   p.x *= uAspect;
-  float d2 = dot(p, p);
-  gl_FragColor = vec4(vec3(0.8, 0.9, 1.0) * uLevel * (4.0 * exp(-d2 * 9.0) + 1.2 * exp(-d2 * 1.6)), 1.0);
+  float r = length(p);
+  float glow = 2.6 * exp(-r * 7.7) * (1.0 - smoothstep(0.5, 0.82, r));
+  gl_FragColor = vec4(vec3(0.8, 0.9, 1.0) * uLevel * glow, 1.0);
 }`;
 
 const RING_FRAG = /* glsl */ `
@@ -242,6 +252,7 @@ export class Fsd {
   private dropMs = -1;
   private timeS = 0;
   private readonly center = new THREE.Vector3();
+  private readonly vp = new THREE.Vector3();
 
   constructor() {
     const mesh = (mat: THREE.ShaderMaterial, order: number): THREE.Mesh => {
@@ -339,6 +350,8 @@ export class Fsd {
     this.tunnelMat.uniforms.uCenter!.value.set(0, 0.16);
     this.edgeMesh.visible = !this.tunnelMesh.visible && this.supercruise > 0.01;
     this.edgeMat.uniforms.uLevel!.value = this.supercruise;
+    this.vp.copy(camera.position).addScaledVector(TRAVEL_DIR, 1e4).project(camera);
+    this.edgeMat.uniforms.uCenter!.value.set(this.vp.x, this.vp.y);
     this.flashMesh.visible = flash > 0.005;
     this.flashMat.uniforms.uLevel!.value = flash;
     this.flashMat.uniforms.uCenter!.value.set(0, dropFlash > 0 ? -0.2 : 0.16);

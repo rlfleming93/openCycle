@@ -59,7 +59,8 @@ export interface GameRendererHooks {
  *  - ResizeObserver: disconnected.
  *  - GameWorld.dispose(): sky cube map + bake/sky/star passes, destination
  *    planet + features, fleet hulls/materials/textures, field streaks/dust/
- *    asteroids, route line, every pooled fx geometry/material.
+ *    glints/haze + belt rocks/wreckage/derelict, flyby bodies/ring/station,
+ *    route line, every pooled fx geometry/material.
  *  - Post.dispose(): HDR scene target, bloom mips, streak targets, pass materials.
  *  - renderer.dispose(): releases the GL context resources; the canvas is
  *    removed from the DOM.

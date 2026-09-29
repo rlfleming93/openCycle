@@ -2,24 +2,26 @@ import * as THREE from 'three';
 
 import { identityColor } from '../../lib/identity.js';
 import type { GameFrame } from '../director.js';
+import { KEEP_OUT, TRAVEL_DIR } from './composition.js';
 import type { Engines, EngineSpec } from './engines.js';
-import type { Fleet, HullAsset, ScreenDisc, ShipBounds } from './fleet.js';
+import type { Fleet, GunTarget, HullAsset, ScreenDisc, ShipBounds } from './fleet.js';
 import { createHullMaterial, disposeHull, lightHull, loadHull } from './fleet.js';
 import { flyToward, smootherstep } from './flight.js';
 import { AMBIENT_GLSL, NOISE_GLSL } from './glsl.js';
-import { clamp, clamp01, easeOutCubic, lerp, seededRandom } from './math.js';
+import { clamp, clamp01, easeOutCubic, lerp, radians, seededRandom } from './math.js';
 import type { Lighting } from './sky.js';
 import type { SparkSpec, Sparks } from './sparks.js';
 
 /**
  * Pursuit raider ("Burn legs are pursuits"). On the lead's burn legs a raider
- * warps in about 3 s into the burn and flies like a pilot 60-120 u ahead of
- * the fleet: it jinks between marks inside the readable part of the chase
- * shot, barrel-rolls, boosts, and drops magnesium chaff once the lock passes
- * 70 %. In-band ships fire alternating paired pulse bolts in their identity
- * colour from the wing-root hardpoints plus occasional yellow multicannon
- * tracers; hits light the raider's shield. The lead's lock fills a reticle ring
- * that turns solid at 100 %. A clean burn ends it big (white core, a fireball
+ * warps in about 3 s into the burn and flees 50-115 u ahead of the fleet along
+ * the travel axis, tail to the guns: it jinks across the travel line inside the
+ * readable part of the chase shot, barrel-rolls, boosts, and drops magnesium
+ * chaff once the lock passes 70 %. In-band ships swing their noses onto it
+ * (fleet.ts) and fire alternating paired pulse bolts in their identity colour
+ * from the wing-root hardpoints plus occasional yellow multicannon tracers;
+ * hits light the raider's shield. The lead's lock fills a reticle ring that
+ * turns solid at 100 %. A clean burn ends it big (white core, a fireball
  * cooling from orange to red, a shock ring, glowing tumbling debris); an
  * unclean burn lets it charge its frame shift drive and streak away.
  *
@@ -32,28 +34,31 @@ const RAIDER_ACCENT = new THREE.Color(0xc0261c);
 const SPAWN_DELAY_MS = 3000;
 const WARP_IN_S = 0.4;
 /**
- * Readable box in the chase shot (screen fractions): left of centre, below the
- * route strip and above the rider cards, and depth ahead (u). The mark also
- * keeps DEST_CLEAR frame widths from the destination (flight-assist lag eats
- * about 0.03 of it, so the raider itself stays 12 % clear), and its reticle
- * (ring, ticks and RING_CLEAR_PX of margin at 1080p) stays off every hull's
- * screen box and below TOP_BAND.
+ * Readable box in the chase shot (screen fractions), straddling the travel
+ * line between the fleet and the vanishing point, and its depth past the fleet
+ * centre along the camera axis (u). The mark's reticle (ring, ticks and
+ * RING_CLEAR_PX of margin at 1080p) stays off every hull's screen box, the HUD
+ * keep-outs and the destination: its disc plus DEST_GAP (the marker ring and
+ * the label under it, and the flight-assist lag); the raider itself never
+ * comes within the disc plus DEST_HOLD (frame heights). The field keeps its
+ * rocks out of this sightline.
  */
-const BOX_X = [0.3, 0.48] as const;
-const BOX_Y = [0.26, 0.44] as const;
-const DEST_CLEAR = 0.15;
-/** Hard floor: the raider itself never comes closer to the destination (frame widths). */
-const DEST_HOLD = 0.125;
+const BOX_X = [0.38, 0.58] as const;
+const BOX_Y = [0.36, 0.5] as const;
+const DEST_GAP = 0.07;
+const DEST_HOLD = 0.13;
 const RING_CLEAR_PX = 22;
-const TOP_BAND = 0.16;
 const DEPTH = [50, 85] as const;
 /** Crowded out of the readable box, the raider drops back this deep (a smaller reticle). */
 const DEEP = 115;
+export const RAIDER_BOX = { x: BOX_X, y: BOX_Y, depth: [DEPTH[0], DEEP] } as const;
 const ASSIST_OMEGA = (2 * Math.PI) / 1.5;
 const ASSIST_ZETA = 0.5;
 const ASSIST_ACCEL = 140;
 const ROLL_S = 0.9;
 const BOOST_S = 0.8;
+/** Guns fire only while the nose is within this angle of the raider's lead point. */
+const GUN_CONE = radians(10);
 
 const BOLT_POOL = 192;
 /** 5 alternating pairs per second per ship; slow enough that 6-12 bolts per
@@ -355,12 +360,14 @@ export class Raiders {
   private readonly acc = new THREE.Vector3();
   private readonly target = new THREE.Vector3();
   private mark = { x: 0.5, y: 0.35, d: 90 };
-  /** The destination's screen point this frame (fractions); `on` while it is in front and in frame. */
-  private readonly dest = { x: 0, y: 0, on: false };
+  /** The destination's screen point (fractions) and disc radius (frame heights) this frame; `on` while it is in front and in frame. */
+  private readonly dest = { x: 0, y: 0, r: 0, on: false };
   /** The fleet's visible hulls with their screen boxes (the reticle keeps off them). */
   private ships: readonly ShipBounds[] = [];
   /** The reticle on screen (ring and ticks): the fleet's wingmen keep off it. */
   readonly reticleScreen: ScreenDisc = { x: 0, y: 0, r: 0, on: false };
+  /** The guns' target: the raider itself, live once its warp-in has settled. */
+  readonly gunTarget: GunTarget = { on: false, position: this.pos, velocity: this.vel, speed: PULSE_SPEED };
   private nextJinkMs = 0;
   private side = 1;
   private rollMs = -1;
@@ -423,7 +430,6 @@ export class Raiders {
   private readonly matrix = new THREE.Matrix4();
   private readonly quat = new THREE.Quaternion();
   private readonly scale = new THREE.Vector3();
-  private readonly basis = new THREE.Matrix4();
   private readonly euler = new THREE.Euler(0, 0, 0, 'YXZ');
   private readonly forward = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
@@ -614,7 +620,10 @@ export class Raiders {
     return true;
   }
 
-  /** `destination` is the destination centre while it is on show, else null; the raider keeps clear of it. */
+  /**
+   * `destination` is the destination centre while it is on show, else null,
+   * and `destinationRadius` its disc's world radius; the raider keeps clear of it.
+   */
   update(
     frame: GameFrame,
     nowMs: number,
@@ -623,6 +632,7 @@ export class Raiders {
     lighting: Lighting,
     camera: THREE.PerspectiveCamera,
     destination: THREE.Vector3 | null,
+    destinationRadius: number,
   ): void {
     const pursuit = frame.pursuit;
     if (pursuit !== null && (this.phase === 'idle' || pursuit.legIndex !== this.legIndex) && this.phase !== 'down' && this.phase !== 'escaping') {
@@ -638,23 +648,27 @@ export class Raiders {
     }
     const lock = pursuit?.lock ?? 0;
 
-    // The pursuit frame is the camera's: "ahead" is into the shot.
+    // Screen placement works in the camera's frame; the raider flies (and
+    // flees) along the travel axis.
     camera.getWorldDirection(this.forward);
     this.right.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
     this.up.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
     if (fleet.fleetCenter(this.center) === null) this.center.set(0, 0, 0);
     this.ships = fleet.bounds;
-    const onScreen = destination === null ? null : this.tmp.copy(destination).project(camera);
-    this.dest.on = onScreen !== null && onScreen.z < 1 && Math.abs(onScreen.x) < 1.2 && Math.abs(onScreen.y) < 1.2;
-    if (onScreen !== null) {
-      this.dest.x = onScreen.x * 0.5 + 0.5;
-      this.dest.y = 0.5 - onScreen.y * 0.5;
+    this.dest.on = false;
+    if (destination !== null) {
+      const p = this.tmp.copy(destination).project(camera);
+      this.dest.on = p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2;
+      this.dest.x = p.x * 0.5 + 0.5;
+      this.dest.y = 0.5 - p.y * 0.5;
+      this.dest.r = destinationRadius / Math.max(1, camera.position.distanceTo(destination)) / (2 * Math.tan((camera.fov * Math.PI) / 360));
     }
 
     if (this.phase === 'pending' && nowMs >= this.spawnAtMs) this.spawn(nowMs, camera);
     if (this.phase === 'alive') this.fly(nowMs, dtS, lock, camera);
     if (this.phase === 'escaping') this.escape(nowMs, dtS, camera);
-    if (this.phase === 'alive') this.shoot(frame, nowMs, lock, fleet);
+    this.gunTarget.on = this.phase === 'alive' && nowMs - this.phaseMs >= WARP_IN_S * 1000;
+    if (this.gunTarget.on) this.shoot(frame, nowMs, lock, fleet);
 
     this.placeHull(nowMs, lighting);
     this.updateBolts(nowMs, dtS, camera);
@@ -692,11 +706,11 @@ export class Raiders {
   }
 
   /**
-   * Keep the mark clear (see BOX_X): when its reticle would touch a hull, the
-   * route strip or the destination's space, move to the nearest clear point of
-   * a grid over the upper frame, left of centre preferred. Crowded out there,
-   * the raider drops back deeper (a smaller reticle) and searches again; with
-   * nothing clear, it holds.
+   * Keep the mark clear (see BOX_X): when its reticle would touch a hull, a HUD
+   * keep-out or the destination's space, move to the nearest clear point of a
+   * grid over the upper frame, left of centre preferred (the destination sits
+   * right of the travel line). Crowded out there, the raider drops back deeper
+   * (a smaller reticle) and searches again; with nothing clear, it holds.
    */
   private clearMark(camera: THREE.PerspectiveCamera): void {
     const aspect = camera.aspect;
@@ -711,8 +725,8 @@ export class Raiders {
       let bestY = m.y;
       for (let iy = 0; iy <= 6; iy++) {
         for (let ix = 0; ix <= 9; ix++) {
-          const x = lerp(0.18, 0.72, ix / 9);
-          const y = lerp(0.2, 0.5, iy / 6);
+          const x = lerp(0.24, 0.72, ix / 9);
+          const y = lerp(0.2, 0.52, iy / 6);
           const d = Math.hypot((x - m.x) * aspect, y - m.y) + Math.max(0, x - 0.5) * 0.3;
           if (d >= best || !this.markClear(x, y, aspect, scale)) continue;
           best = d;
@@ -731,13 +745,17 @@ export class Raiders {
 
   /**
    * Whether a reticle at screen point (x, y), its ring scaled by `scale`,
-   * keeps off the hulls, the route strip and the destination.
+   * keeps off the hulls, the HUD keep-outs and the destination.
    */
   private markClear(x: number, y: number, aspect: number, scale: number): boolean {
     const dest = this.dest;
-    if (dest.on && Math.hypot(x - dest.x, (y - dest.y) / aspect) < DEST_CLEAR) return false;
     const r = ((this.reticleMat.uniforms.uRing!.value as number) * scale + RING_CLEAR_PX) / 1080;
-    if (y - r < TOP_BAND) return false;
+    if (dest.on && Math.hypot((x - dest.x) * aspect, y - dest.y) < dest.r + r + DEST_GAP) return false;
+    if (y - r < KEEP_OUT.top) return false;
+    const sx = Math.max(0, x - KEEP_OUT.sideRight) * aspect;
+    const sy = Math.max(KEEP_OUT.sideTop - y, 0, y - KEEP_OUT.sideBottom);
+    if (sx * sx + sy * sy < r * r) return false;
+    if (y + r > KEEP_OUT.cards && (x - r / aspect < KEEP_OUT.cardsLeft || x + r / aspect > KEEP_OUT.cardsRight)) return false;
     for (const b of this.ships) {
       const rect = b.rect;
       if (!rect.valid) continue;
@@ -792,16 +810,17 @@ export class Raiders {
       const ux = (p.x * 0.5 + 0.5 - dest.x) * aspect;
       const uy = 0.5 - p.y * 0.5 - dest.y;
       const d = Math.hypot(ux, uy);
-      const hold = DEST_HOLD * aspect;
+      const hold = dest.r + DEST_HOLD;
       if (d < hold && d > 1e-4) this.shove(ux / d, uy / d, hold - d, unit);
     }
-    // ...and never out of the readable region: in frame, below the route strip,
-    // above the rider cards (these win over a hull the ring still grazes).
+    // ...and never out of the readable region: in frame, right of the sidebar,
+    // below the route strip and above the rider cards (these win over a hull
+    // the ring still grazes).
     const p = this.tmp.copy(this.pos).project(camera);
     const x = p.x * 0.5 + 0.5;
     const y = 0.5 - p.y * 0.5;
-    const dx = (clamp(x, 0.14, 0.78) - x) * aspect;
-    const dy = clamp(y, Math.min(TOP_BAND + r, 0.5), 0.52) - y;
+    const dx = (clamp(x, KEEP_OUT.sideRight + r / aspect, 0.78) - x) * aspect;
+    const dy = clamp(y, Math.min(KEEP_OUT.top + r, 0.5), Math.min(0.52, KEEP_OUT.cards - r)) - y;
     const out = Math.hypot(dx, dy);
     if (out > 1e-5) this.shove(dx / out, dy / out, out, unit);
   }
@@ -839,8 +858,8 @@ export class Raiders {
     this.nextRollMs = nowMs + 2500 + this.rnd() * 2500;
     this.nextBoostMs = nowMs + 3500 + this.rnd() * 3000;
     this.nextChaffMs = nowMs;
-    // Warp-in: a streak racing in from deep ahead plus a flash.
-    this.streak(this.tmp.copy(this.pos).addScaledVector(this.forward, 520), this.pos, 0.35, 1.1);
+    // Warp-in: a streak racing back in from deep ahead on the travel axis, plus a flash.
+    this.streak(this.tmp.copy(this.pos).addScaledVector(TRAVEL_DIR, 520), this.pos, 0.35, 1.1);
     this.spark.size0 = 16;
     this.spark.size1 = 4;
     this.spark.lifeS = 0.45;
@@ -889,7 +908,7 @@ export class Raiders {
       for (let i = 0; i < 9; i++) {
         s.lifeS = 1.3 + this.rnd() * 1.1;
         this.tmp
-          .copy(this.forward)
+          .copy(TRAVEL_DIR)
           .multiplyScalar(-(14 + this.rnd() * 10))
           .addScaledVector(this.right, (this.rnd() - 0.5) * 26)
           .addScaledVector(this.up, (this.rnd() - 0.3) * 20);
@@ -898,13 +917,19 @@ export class Raiders {
     }
   }
 
-  /** Fire from every in-band ship: alternating pulses and multicannon bursts. */
+  /**
+   * Fire from every in-band ship whose nose is on the raider's lead point
+   * (fleet.ts swings it there): alternating pulses and multicannon bursts, so
+   * the bolts leave the hardpoints along the nose and converge on the raider.
+   */
   private shoot(frame: GameFrame, nowMs: number, lock: number, fleet: Fleet): void {
-    if (nowMs - this.phaseMs < WARP_IN_S * 1000) return;
     for (let i = 0; i < frame.riders.length; i++) {
       const rider = frame.riders[i]!;
       if (!rider.inBand) continue;
       if (!fleet.hardpoints(rider.riderId, this.hardL, this.hardR, this.nose)) continue;
+      const muzzle = this.tmp.copy(this.hardL).add(this.hardR).multiplyScalar(0.5);
+      const lead = this.aim.copy(this.pos).addScaledVector(this.vel, muzzle.distanceTo(this.pos) / PULSE_SPEED).sub(muzzle);
+      if (this.nose.angleTo(lead) > GUN_CONE) continue;
       let g = this.gunners.get(rider.riderId);
       if (g === undefined) {
         g = { nextPulseMs: nowMs + i * 55, side: 0, nextBurstMs: nowMs + 900 + i * 700, burstLeft: 0 };
@@ -1071,10 +1096,10 @@ export class Raiders {
       return;
     }
     if (!this.jumped) {
-      // The jump: a flash and a streak to the vanishing point.
+      // The jump: a flash and a streak away down the travel axis.
       this.jumped = true;
       this.escapeFrom.copy(this.pos);
-      this.streak(this.pos, this.tmp.copy(this.pos).addScaledVector(this.forward, 900), 0.7, 1.4);
+      this.streak(this.pos, this.tmp.copy(this.pos).addScaledVector(TRAVEL_DIR, 900), 0.7, 1.4);
       const s = this.spark;
       s.size0 = 18;
       s.size1 = 6;
@@ -1087,11 +1112,14 @@ export class Raiders {
       this.sparks.emit(this.pos, this.tmp.set(0, 0, 0), s);
     }
     const k = clamp01((t - ESCAPE_CHARGE_S) / 0.3);
-    this.pos.copy(this.escapeFrom).addScaledVector(this.forward, 900 * k * k);
+    this.pos.copy(this.escapeFrom).addScaledVector(TRAVEL_DIR, 900 * k * k);
     if (t >= ESCAPE_S) this.retire();
   }
 
-  /** Hull pose: nose into the shot, yaw/pitch off velocity, bank off accel. */
+  /**
+   * Hull pose: fleeing along the travel axis (the world's -Z, tail to the
+   * fleet), yaw and pitch off its jink velocity, bank off its lateral accel.
+   */
   private placeHull(nowMs: number, lighting: Lighting): void {
     const hull = this.hull;
     const mat = this.hullMat;
@@ -1103,16 +1131,15 @@ export class Raiders {
     hull.visible = flying && escapeT < ESCAPE_CHARGE_S;
     if (!hull.visible) return;
 
-    const vr = this.vel.dot(this.right);
-    const vu = this.vel.dot(this.up);
-    const ar = this.acc.dot(this.right);
     const rollS = this.rollMs < 0 ? Infinity : (nowMs - this.rollMs) / 1000;
     if (rollS >= ROLL_S) this.rollMs = -1;
     const spin = rollS < ROLL_S ? this.rollDir * 2 * Math.PI * smootherstep(rollS / ROLL_S) : 0;
-    this.basis.makeBasis(this.right, this.up, this.tmp.copy(this.forward).negate());
-    hull.quaternion.setFromRotationMatrix(this.basis);
-    this.euler.set(clamp(Math.atan2(vu, 70), -0.5, 0.5), clamp(-Math.atan2(vr, 70), -0.6, 0.6), clamp(-Math.atan2(ar, 60), -1.1, 1.1) + spin);
-    hull.quaternion.multiply(this.quat.setFromEuler(this.euler));
+    this.euler.set(
+      clamp(Math.atan2(this.vel.y, 70), -0.5, 0.5),
+      clamp(-Math.atan2(this.vel.x, 70), -0.6, 0.6),
+      clamp(-Math.atan2(this.acc.x, 60), -1.1, 1.1) + spin,
+    );
+    hull.quaternion.setFromEuler(this.euler);
     hull.position.copy(this.pos);
     // Warp-in: the hull arrives stretched along the travel axis and settles.
     const warpIn = clamp01((nowMs - this.phaseMs) / (WARP_IN_S * 1000));
@@ -1270,8 +1297,8 @@ export class Raiders {
       if (this.phase === 'down') this.retire();
       return;
     }
-    // The fleet overtakes the wreck: everything streams aft (toward camera).
-    this.wreck.addScaledVector(this.forward, -WRECK_STREAM * 0.35 * dtS);
+    // The fleet overtakes the wreck: everything streams aft down the travel axis.
+    this.wreck.addScaledVector(TRAVEL_DIR, -WRECK_STREAM * 0.35 * dtS);
     if (this.fireball.visible) {
       // Sized on screen: the cluster swells to FIRE_PEAK of the frame height.
       const depth = Math.max(1, this.tmp.copy(this.wreck).sub(camera.position).dot(this.forward));
@@ -1312,7 +1339,7 @@ export class Raiders {
     for (let i = 0; i < this.chunks.length; i++) {
       const c = this.chunks[i]!;
       c.vel.multiplyScalar(Math.exp(-0.35 * dtS));
-      c.pos.addScaledVector(c.vel, dtS).addScaledVector(this.forward, -WRECK_STREAM * dtS);
+      c.pos.addScaledVector(c.vel, dtS).addScaledVector(TRAVEL_DIR, -WRECK_STREAM * dtS);
       c.rot.x += c.spin.x * dtS;
       c.rot.y += c.spin.y * dtS;
       c.rot.z += c.spin.z * dtS;

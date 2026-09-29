@@ -18,6 +18,10 @@
   "scripts": {
     "check": "tsc -b packages/shared apps/server apps/web apps/web/tsconfig.node.json",
     "test": "vitest run",
+    "build": "pnpm --filter @opencycle/shared build && pnpm --filter @opencycle/web build",
+    "start": "node scripts/start.mjs",
+    "demo": "node scripts/start.mjs --demo --open",
+    "app": "bash packaging/macos/build.sh",
     "dev": "concurrently -n server,web -c blue,green \"pnpm --filter @opencycle/server dev\" \"pnpm --filter @opencycle/web dev\"",
     "dev:server": "pnpm --filter @opencycle/server dev",
     "garmin:login": "pnpm --filter @opencycle/server exec tsx scripts/garmin-login.ts",

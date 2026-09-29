@@ -2,18 +2,28 @@ import type { Leg, SessionSnapshot } from '@opencycle/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
+  STEP_WINDOW_ROWS,
+  STEP_WINDOW_UNITS,
   arrivalChip,
   fmtClock,
   honorRoll,
+  legFillFraction,
   legLabel,
   legLockFraction,
   legLockLabel,
   legObjective,
   legOnTargetPct,
   legRemainingS,
+  legTargetLabel,
   legToast,
   objectiveLegCount,
+  profilePlayhead,
   routeHeader,
+  stepWindow,
+  surveyMarker,
+  surveyMarks,
+  workoutHeader,
+  workoutProfile,
 } from './hud.js';
 
 type RiderSnapshot = SessionSnapshot['riders'][number];
@@ -286,5 +296,205 @@ describe('fmtClock', () => {
   it('rounds to the nearest second and clamps negatives', () => {
     expect(fmtClock(59.6)).toBe('1:00');
     expect(fmtClock(-5)).toBe('0:00');
+  });
+});
+
+describe('legTargetLabel', () => {
+  const solo = { riders: 1, ftpW: 250, biasPct: 0 };
+
+  it('reads watts the engine would hold for a single rider', () => {
+    expect(legTargetLabel(leg({ startPctFtp: 0.88, endPctFtp: 0.88 }), solo)).toBe('220 W');
+  });
+
+  it('carries the ERG bias, like the server target', () => {
+    expect(legTargetLabel(leg({ startPctFtp: 0.88, endPctFtp: 0.88 }), { ...solo, biasPct: 10 })).toBe('242 W');
+    expect(legTargetLabel(leg({ startPctFtp: 0.88, endPctFtp: 0.88 }), { ...solo, biasPct: -15 })).toBe('187 W');
+  });
+
+  it('reads a ramp as a slope in watts', () => {
+    expect(
+      legTargetLabel(leg({ kind: 'climb', startPctFtp: 0.6, endPctFtp: 0.88 }), solo),
+    ).toBe('150→220 W');
+  });
+
+  it('collapses a ramp whose ends land on the same watt', () => {
+    expect(legTargetLabel(leg({ startPctFtp: 0.6, endPctFtp: 0.601 }), solo)).toBe('150 W');
+  });
+
+  it('reads %FTP once a session has two or more riders', () => {
+    const fleet = { riders: 3, ftpW: 250, biasPct: 10 };
+    expect(legTargetLabel(leg({ startPctFtp: 0.88, endPctFtp: 0.88 }), fleet)).toBe('88%');
+    expect(legTargetLabel(leg({ kind: 'climb', startPctFtp: 0.75, endPctFtp: 0.88 }), fleet)).toBe('75→88%');
+  });
+
+  it('has no target to state on a free leg', () => {
+    expect(legTargetLabel(leg({ kind: 'free', startPctFtp: null, endPctFtp: null }), solo)).toBe('FREE');
+  });
+});
+
+describe('legFillFraction', () => {
+  it('measures the leg on the workout clock', () => {
+    expect(legFillFraction(leg({ startS: 100, endS: 300 }), 150)).toBe(0.25);
+  });
+
+  it('clamps outside the leg and without a clock', () => {
+    expect(legFillFraction(leg({ startS: 100, endS: 300 }), 900)).toBe(1);
+    expect(legFillFraction(leg({ startS: 100, endS: 300 }), 10)).toBe(0);
+    expect(legFillFraction(leg(), null)).toBe(0);
+  });
+});
+
+describe('workoutProfile', () => {
+  // 5:00 warm-up at 50%, 4:00 burn at 120%, 5:00 coast at 50% — 14:00 total.
+  const legs = [
+    leg({ index: 0, kind: 'launch', startS: 0, endS: 300, startPctFtp: 0.5, endPctFtp: 0.5, objective: false }),
+    leg({ index: 1, kind: 'burn', startS: 300, endS: 540, startPctFtp: 1.2, endPctFtp: 1.2 }),
+    leg({ index: 2, kind: 'coast', startS: 540, endS: 840, startPctFtp: 0.5, endPctFtp: 0.5, objective: false }),
+  ];
+
+  it('sizes bars by duration share across the whole workout', () => {
+    const profile = workoutProfile(legs);
+    expect(profile.totalS).toBe(840);
+    expect(profile.scale).toBe(1.2);
+    expect(
+      profile.bars.map((bar) => ({
+        x: Number(bar.x.toFixed(4)),
+        width: Number(bar.width.toFixed(4)),
+        height: Number((1 - bar.top).toFixed(4)),
+      })),
+    ).toEqual([
+      { x: 0, width: 0.3571, height: 0.4167 },
+      { x: 0.3571, width: 0.2857, height: 1 },
+      { x: 0.6429, width: 0.3571, height: 0.4167 },
+    ]);
+  });
+
+  it('slopes ramp legs from the left edge top to the right edge top', () => {
+    const [bar] = workoutProfile([
+      leg({ kind: 'climb', startS: 0, endS: 600, startPctFtp: 0.5, endPctFtp: 1 }),
+    ]).bars;
+    expect(bar).toMatchObject({ ramp: true, top: 0.5, topRight: 0 });
+  });
+
+  it('keeps a flat leg unclipped', () => {
+    expect(workoutProfile([leg({ startPctFtp: 0.9, endPctFtp: 0.9 })]).bars[0]?.ramp).toBe(false);
+  });
+
+  it('draws a free leg as a low stub rather than a claimed target', () => {
+    const profile = workoutProfile([leg({ kind: 'free', startPctFtp: null, endPctFtp: null })]);
+    expect(profile.scale).toBe(1);
+    expect(profile.bars[0]?.top).toBeCloseTo(0.88);
+  });
+
+  it('keeps the scale at FTP when nothing reaches it', () => {
+    expect(workoutProfile([leg({ startPctFtp: 0.6, endPctFtp: 0.6 })]).scale).toBe(1);
+  });
+
+  it('is empty without legs', () => {
+    expect(workoutProfile(null)).toEqual({ bars: [], totalS: 0, scale: 1 });
+  });
+});
+
+describe('profilePlayhead', () => {
+  const legs = [leg({ index: 0, startS: 0, endS: 600 }), leg({ index: 1, startS: 600, endS: 1200 })];
+
+  it('places the playhead by workout clock over the whole workout', () => {
+    expect(profilePlayhead(legs, 300)).toBe(0.25);
+    expect(profilePlayhead(legs, 1200)).toBe(1);
+  });
+
+  it('clamps and reads zero without a clock', () => {
+    expect(profilePlayhead(legs, 5000)).toBe(1);
+    expect(profilePlayhead(legs, null)).toBe(0);
+    expect(profilePlayhead(null, 300)).toBe(0);
+  });
+});
+
+describe('stepWindow', () => {
+  it('holds the current row one plain row below the top', () => {
+    expect(stepWindow(11, 4)).toEqual({ offset: 3, moreAbove: true, moreBelow: true });
+  });
+
+  it('does not scroll past the first row', () => {
+    expect(stepWindow(11, 0)).toEqual({ offset: 0, moreAbove: false, moreBelow: true });
+  });
+
+  it('stops at the last row so the tail stays whole', () => {
+    expect(stepWindow(11, 10)).toEqual({ offset: 5, moreAbove: true, moreBelow: false });
+  });
+
+  it('reserves the taller current row at the end of a long workout', () => {
+    // A viewport of seven plain rows would cut 0.4 of a row off the bottom.
+    const tail = stepWindow(13, 12, 7, 1.4);
+    expect(tail.offset).toBeCloseTo(6.4);
+    expect(tail).toMatchObject({ moreAbove: true, moreBelow: false });
+    expect(stepWindow(13, 1, 7, 1.4)).toEqual({ offset: 0, moreAbove: false, moreBelow: true });
+  });
+
+  it('lands the tail on a row boundary for the sidebar viewport', () => {
+    expect(stepWindow(13, 12)).toEqual({ offset: 7, moreAbove: true, moreBelow: false });
+    expect(stepWindow(13, 11)).toEqual({ offset: 7, moreAbove: true, moreBelow: false });
+  });
+
+  it('sizes that viewport as whole rows plus the taller current row', () => {
+    expect(STEP_WINDOW_UNITS).toBeCloseTo(6.4);
+    expect(STEP_WINDOW_ROWS).toBe(6);
+  });
+
+  it('never scrolls a list shorter than the window', () => {
+    expect(stepWindow(4, 3)).toEqual({ offset: 0, moreAbove: false, moreBelow: false });
+    expect(stepWindow(0, null).offset).toBe(0);
+  });
+});
+
+describe('surveyMarks', () => {
+  it('maps a rider’s own completed objective legs', () => {
+    const marks = surveyMarks(
+      [
+        { kind: 'legCompleted', riderId: 'r1', legIndex: 2, legKind: 'burn', objective: true, targetedS: 200, onTargetS: 180, clean: true, ts: 1 },
+        { kind: 'legCompleted', riderId: 'r1', legIndex: 3, legKind: 'coast', objective: false, targetedS: 0, onTargetS: 0, clean: true, ts: 2 },
+        { kind: 'legCompleted', riderId: 'r2', legIndex: 4, legKind: 'burn', objective: true, targetedS: 200, onTargetS: 90, clean: false, ts: 3 },
+        { kind: 'legCompleted', riderId: 'r1', legIndex: 5, legKind: 'climb', objective: true, targetedS: 200, onTargetS: 90, clean: false, ts: 4 },
+      ],
+      'r1',
+    );
+    expect(marks).toEqual({ 2: true, 5: false });
+  });
+
+  it('ignores legs that never reported', () => {
+    expect(surveyMarks([{ kind: 'workoutCompleted', riderId: 'r1', ts: 9 }], 'r1')).toEqual({});
+  });
+});
+
+describe('surveyMarker', () => {
+  it('reads a clean leg and a missed one apart', () => {
+    expect(surveyMarker(true)).toEqual({ glyph: '✓', title: 'Survey locked — clean leg', clean: true });
+    expect(surveyMarker(false)).toEqual({ glyph: '·', title: 'No survey — leg not clean', clean: false });
+  });
+
+  it('is null for a leg with no survey to show', () => {
+    expect(surveyMarker(undefined)).toBeNull();
+  });
+});
+
+describe('workoutHeader', () => {
+  it('pairs the workout clock with the whole workout', () => {
+    expect(workoutHeader('VO2max 4x4', 750, 1800, 1050)).toEqual({
+      name: 'VO2max 4x4',
+      clock: '12:30 / 30:00',
+      remaining: '17:30 LEFT',
+    });
+  });
+
+  it('reads complete once the workout clock is gone', () => {
+    expect(workoutHeader('VO2max 4x4', null, 1800, null)).toEqual({
+      name: 'VO2max 4x4',
+      clock: '30:00 / 30:00',
+      remaining: 'COMPLETE',
+    });
+  });
+
+  it('falls back to WORKOUT without a name', () => {
+    expect(workoutHeader(undefined, 0, 1800, 1800).name).toBe('WORKOUT');
   });
 });

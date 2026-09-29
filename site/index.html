@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>openCycle — KICKR ERG control, FIT files and a space voyage</title>
-<meta name="description" content="Open-source indoor cycling for a home trainer: Bluetooth FTMS ERG control, several riders on one machine, a FIT file for every ride, training plans and Garmin sync, with a space voyage flown by your workout.">
+<title>openCycle: ERG workouts, FIT files and a space voyage for your KICKR</title>
+<meta name="description" content="Open-source indoor cycling I built for my Wahoo KICKR. It runs ERG workouts over Bluetooth, records every ride as a FIT file, syncs with Garmin, and turns each workout into a flight to a new star system.">
 <link rel="canonical" href="https://opencycle.pages.dev/">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#02040a">
@@ -16,18 +16,18 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="openCycle">
 <meta property="og:url" content="https://opencycle.pages.dev/">
-<meta property="og:title" content="openCycle — KICKR ERG control, FIT files and a space voyage">
-<meta property="og:description" content="Open-source indoor cycling: hold a Wahoo KICKR at the target watts over Bluetooth ERG, ride with several people on one machine, record a FIT file every session, and fly a fleet of ships to a new star system while you pedal.">
+<meta property="og:title" content="openCycle: ERG workouts, FIT files and a space voyage for your KICKR">
+<meta property="og:description" content="Open-source indoor cycling I built for my Wahoo KICKR. ERG workouts, a FIT file for every ride, several riders on one computer, and a space chase on every interval.">
 <meta property="og:image" content="https://opencycle.pages.dev/og.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The openCycle ride screen: two ships chase a raider past a black hole, with the route strip across the top and rider cards at the bottom.">
+<meta property="og:image:alt" content="The openCycle ride screen: two ships chase a raider past a blue supergiant, with the workout sidebar on the left and rider cards at the bottom.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="openCycle — KICKR ERG control, FIT files and a space voyage">
-<meta name="twitter:description" content="Open-source indoor cycling: Bluetooth ERG control, FIT files, Garmin sync, and a space voyage flown by your workout.">
+<meta name="twitter:title" content="openCycle: ERG workouts, FIT files and a space voyage for your KICKR">
+<meta name="twitter:description" content="Open-source indoor cycling for a KICKR. ERG workouts, FIT files, Garmin sync, and a space chase on every interval.">
 <meta name="twitter:image" content="https://opencycle.pages.dev/og.jpg">
-<meta name="twitter:image:alt" content="The openCycle ride screen: two ships chase a raider past a black hole, with the route strip across the top and rider cards at the bottom.">
+<meta name="twitter:image:alt" content="The openCycle ride screen: two ships chase a raider past a blue supergiant, with the workout sidebar on the left and rider cards at the bottom.">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -64,13 +64,13 @@
       <video class="hero__loop" data-motion autoplay muted loop playsinline preload="auto" poster="media/poster.webp" aria-hidden="true" tabindex="-1">
         <source src="media/loop.mp4" type="video/mp4">
       </video>
-      <img class="hero__still" src="media/poster.webp" width="1920" height="1080" alt="The openCycle ride screen: two ships chase a raider past a black hole, with the route strip across the top and rider cards at the bottom.">
+      <img class="hero__still" src="media/poster.webp" width="1920" height="1080" alt="The openCycle ride screen: two ships chase a raider past a blue supergiant, with the workout sidebar on the left and rider cards at the bottom.">
       <div class="hero__scrim" aria-hidden="true"></div>
       <p class="hero__tag">Recorded on the built-in simulator</p>
     </div>
     <div class="hero__body">
-      <h1>The workout is the flight plan.</h1>
-      <p class="hero__sub">openCycle holds your KICKR at the watts the workout asks for, records every ride as a FIT file, and flies a fleet of ships to a new star system while you pedal.</p>
+      <h1>I built my own indoor cycling app.</h1>
+      <p class="hero__sub">openCycle holds your KICKR at the watts the workout asks for and records every ride as a FIT file. While you ride, the workout flies a small fleet of ships to a new star system.</p>
       <p class="hero__cta">
         <a class="btn btn--solid" href="https://github.com/rlfleming93/openCycle">
           View on GitHub
@@ -78,41 +78,41 @@
         </a>
         <a class="btn btn--line" href="#run">Run it</a>
       </p>
-      <p class="hero__facts">MIT licensed · macOS and Node 24 · tested with a Wahoo KICKR CORE over Bluetooth FTMS ERG</p>
+      <p class="hero__facts">MIT licensed · macOS and Node 24 · tested on my Wahoo KICKR CORE</p>
     </div>
   </section>
 
   <section class="sec" id="what">
     <div class="wrap">
       <div class="head">
-        <h2>A trainer controller, a recorder, and a game.</h2>
-        <p class="lead">One app covers the indoor season: the trainer, the workout, the file that lands in Garmin, and the flight you watch while you ride it.</p>
+        <h2>What it does</h2>
+        <p class="lead">It replaced the subscription app I was paying for. It runs the trainer, the workout and the ride file, and it can run more than one rider on the same computer.</p>
       </div>
       <div class="split">
         <figure class="shot">
-          <img src="media/still-burn.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="A burn leg in progress: the ship fires at a raider inside a lock ring, the route strip reads BURN 1/4 with LOCK 100%, and the rider card shows the target watts, cadence and heart rate.">
-          <figcaption>A burn leg at 115% FTP. Hold the watts and your ship keeps firing; the route strip shows the lock building.</figcaption>
+          <img src="media/still-burn.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="A burn leg in progress: the ship fires at a raider inside a lock ring near a black hole, the sidebar shows BURN 1/4 as the current step, and the rider card shows the target watts, cadence and heart rate.">
+          <figcaption>A burn at 115% FTP. Hold the watts and your ship keeps firing. The lock meter up top fills as you go.</figcaption>
         </figure>
         <dl class="spec">
           <div>
             <dt>ERG control</dt>
-            <dd>Your trainer gets the target over Bluetooth FTMS ERG and holds it there. You pedal, and the resistance follows the workout step by step.</dd>
+            <dd>Your trainer gets the target over Bluetooth FTMS ERG and holds it. You pedal and the resistance follows the workout.</dd>
           </div>
           <div>
             <dt>Several riders, one machine</dt>
-            <dd>Two or more riders can ride a session on the same computer, each with their own trainer, heart rate strap, targets and FIT file.</dd>
+            <dd>Two or more people can ride one session on the same computer. Everyone gets their own trainer, heart rate strap, targets and FIT file.</dd>
           </div>
           <div>
             <dt>A FIT file for every ride</dt>
-            <dd>Every session is recorded as a standard FIT file. Download it from History, or let it upload to Garmin Connect.</dd>
+            <dd>Every session is saved as a standard FIT file. Download it from History, or let it upload to Garmin Connect.</dd>
           </div>
           <div>
             <dt>Workouts and plans</dt>
-            <dd>Curated workouts and multi-week plan templates ship with the repo as JSON. Write your own, then check the whole library with one command.</dd>
+            <dd>The repo comes with workouts and multi-week plan templates as JSON. You can write your own and check the whole library with one command.</dd>
           </div>
           <div>
             <dt>Garmin import and upload</dt>
-            <dd>Drop a Garmin account export into the import folder to bring old rides back in. Turn on auto-upload in a profile, save a Garmin login once, and finished rides upload to Garmin Connect.</dd>
+            <dd>Drop a Garmin account export into the import folder and your old rides come back in. Turn on auto-upload in a profile, save a Garmin login once, and new rides go up on their own.</dd>
           </div>
         </dl>
       </div>
@@ -123,7 +123,7 @@
     <div class="wrap">
       <div class="head">
         <h2>Every workout is a flight to a new system.</h2>
-        <p class="lead">The ride screen is a voyage flown by the workout you are doing. Every system has something enormous to fly toward: a black hole bending the starlight around it, a blue supergiant or a binary pair. The trainer, the targets and the FIT file stay the source of truth: the game only reads them.</p>
+        <p class="lead">I wanted it to look like Interstellar and fly like Elite Dangerous. So every system has something huge in it: a black hole bending the starlight around it, a blue supergiant, or two stars orbiting each other. The game only reads the trainer and the workout. It never changes your targets.</p>
       </div>
 
       <figure class="route">
@@ -140,39 +140,39 @@
           <li class="leg" data-kind="coast" style="flex-grow:180"><span class="leg__label">Coast</span><span class="sr">coast, 180 seconds</span></li>
           <li class="leg" data-kind="approach" style="flex-grow:600"><span class="leg__label">Approach</span><span class="sr">approach, 600 seconds</span></li>
         </ol>
-        <p class="route__key"><span class="route__dot" aria-hidden="true"></span> A lit dot marks an objective leg: one survey chance. Cruise, climb and burn legs all count.</p>
-        <figcaption>VO2max 4x4 in eleven legs: 53 minutes, two launches, four burns, four coasts and an approach. Finish the workout and you arrive.</figcaption>
+        <p class="route__key"><span class="route__dot" aria-hidden="true"></span> A lit dot is a survey chance. Cruise, climb and burn legs all count.</p>
+        <figcaption>VO2max 4x4 as eleven legs. It's 53 minutes with two launches, four burns, four coasts and an approach. Finish the workout and you arrive.</figcaption>
       </figure>
 
       <div class="voyage">
         <div class="rules">
           <h3>The mission clock</h3>
-          <p>You arrive by finishing the workout. How hard you push changes what you find there, never whether you get there.</p>
+          <p>You get there by finishing the workout. How hard you push changes what you find when you arrive. It never decides whether you arrive.</p>
           <h3>Surveys</h3>
-          <p>Every cruise, climb and burn leg is one survey chance. Hold within 10% of the target for 85% of the leg, after a five-second settle once the leg starts, and the survey locks: a probe flies to the planet, and on arrival it lights a ring, a moon or a station. Going over target never counts.</p>
+          <p>Every cruise, climb and burn leg is a survey chance. Stay within 10% of the target for 85% of the leg (the first five seconds don't count, so ERG can settle) and the survey locks. A probe flies to the planet, and when you arrive it lights up a ring, a moon or a station. Going over target doesn't count.</p>
           <h3>Pursuits</h3>
-          <p>Every burn is a chase. A raider warps in ahead of the fleet, and while you hold your target your ship fires at it and the lock builds. Finish the burn clean and the raider goes down; miss it and it jumps away. Nobody takes damage, and the lock only shows what the survey already measures.</p>
+          <p>Every burn is a chase. A raider warps in ahead of you, and while you're on target your ship shoots at it and the lock fills. Finish the burn clean and it goes down. Miss it and it gets away. Nobody takes damage, and the lock is the same number the survey uses.</p>
           <h3>Your star map</h3>
-          <p>Each rider keeps a voyage: every system they have reached, with the surveys they locked, on a page of its own. The next destination is worked out in advance, so a planned workout already has a name.</p>
+          <p>Each rider has a voyage page with every system they've reached and the surveys they locked. The next stop is already picked, so a planned workout already has a destination.</p>
           <h3>Riding together</h3>
-          <p>With two or more riders, everyone flies to the lead rider's destination and chases the same raider. Hold your zones together and a tether links the ships. When one rider's cadence drops away, another can cover: fifteen seconds at 10% over their own target, and a shield goes up around the struggling ship in the helper's color.</p>
+          <p>With two or more riders, everyone flies to the same destination and chases the same raider. Hold your zones together and a tether links the ships. If someone's cadence drops, someone else can cover by riding 10% over their own target for fifteen seconds. A shield goes up around the struggling ship in the helper's color.</p>
         </div>
         <div class="voyage__stills">
           <figure class="shot">
-            <img src="media/still-duo.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="Two riders on a burn chasing a raider past a black hole with a glowing accretion disk; both rider cards read ON TARGET.">
-            <figcaption>Two riders on the same burn, chasing one raider past a black hole.</figcaption>
+            <img src="media/still-duo.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="Two riders on a burn firing at a raider inside a lock ring, next to a blue supergiant. Both rider cards read ON TARGET.">
+            <figcaption>Two riders on the same burn, chasing one raider.</figcaption>
           </figure>
           <figure class="shot">
             <img src="media/still-voyage.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="The Voyage page: systems laid out along a winding path, each with its date, workout and survey marks.">
-            <figcaption>The Voyage page: every system a rider has reached, with the surveys they locked.</figcaption>
+            <figcaption>The Voyage page. Every system a rider has reached, with the surveys they locked.</figcaption>
           </figure>
         </div>
       </div>
     </div>
 
     <figure class="bleed">
-      <img src="media/still-arrival.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="Arrival at the destination: the ship in orbit beside a ringed planet, lit from behind by a blue supergiant.">
-      <figcaption><span class="wrap">Arrival. Each survey you locked lights one feature of the new system; the ones you missed stay as faint outlines.</span></figcaption>
+      <img src="media/still-arrival.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="Arrival at the destination: the ship in orbit beside a ringed planet, silhouetted against a black hole and its accretion disk.">
+      <figcaption><span class="wrap">Arrival. Each survey you locked lights up one part of the system, and the ones you missed stay as faint outlines.</span></figcaption>
     </figure>
   </section>
 
@@ -180,12 +180,12 @@
     <div class="wrap">
       <div class="head">
         <h2>Hardware</h2>
-        <p class="lead">The server runs on the computer next to the bike and talks to the trainer over Bluetooth. There is no account and nothing to sign up for.</p>
+        <p class="lead">The server runs on the computer next to the bike and talks to the trainer over Bluetooth. There's no account and nothing to sign up for.</p>
       </div>
       <dl class="spec spec--tight">
         <div>
           <dt>Trainer</dt>
-          <dd>Tested with the Wahoo KICKR CORE over Bluetooth FTMS ERG control. Other FTMS trainers may work, but they are untested.</dd>
+          <dd>I've only tested it on my own Wahoo KICKR CORE, over Bluetooth FTMS ERG. Other FTMS trainers might work. I just haven't tried one.</dd>
         </div>
         <div>
           <dt>Heart rate</dt>
@@ -193,11 +193,11 @@
         </div>
         <div>
           <dt>Computer</dt>
-          <dd>macOS and Node 24. The Bluetooth stack is a native addon, so the server runs on Node and not on Bun.</dd>
+          <dd>macOS and Node 24. The Bluetooth library is a native addon, so the server needs Node. Bun won't run it.</dd>
         </div>
         <div>
           <dt>Your data</dt>
-          <dd>Rides and profiles live in a folder you choose: <code>~/.opencycle</code> by default, or <code>OPENCYCLE_DATA_DIR</code>.</dd>
+          <dd>Rides and profiles live in <code>~/.opencycle</code> by default. Set <code>OPENCYCLE_DATA_DIR</code> to put them somewhere else.</dd>
         </div>
       </dl>
     </div>
@@ -207,7 +207,7 @@
     <div class="wrap">
       <div class="head">
         <h2>Run it</h2>
-        <p class="lead">You do not need a trainer to try it. The simulator adds fake trainers and heart rate straps, so a session is one command away.</p>
+        <p class="lead">You don't need a trainer to try it. The simulator fakes two trainers and two heart rate straps, and <code>pnpm demo</code> opens it in your browser.</p>
       </div>
 
       <div class="cmd">
@@ -218,17 +218,17 @@
         <pre id="commands"><code>git clone https://github.com/rlfleming93/openCycle.git
 cd openCycle
 pnpm install
-OPENCYCLE_SIM=2x2 OPENCYCLE_DATA_DIR=/tmp/opencycle-demo pnpm dev</code></pre>
+pnpm demo</code></pre>
       </div>
 
-      <p class="prose">Open <a href="http://localhost:5173">http://localhost:5173</a>, create a profile, then start a session from the session builder. <code>2x2</code> means two simulated trainers and two simulated straps, and <code>OPENCYCLE_DATA_DIR</code> keeps the demo database and FIT files out of your real data folder. Requires Node 24 and pnpm 10.26 or later.</p>
-      <p class="prose">With a real trainer, set <code>OPENCYCLE_BLE=1</code>. On macOS, Bluetooth is denied to SSH and headless processes, so the README wraps the server in a small app bundle that gives it a stable identity once you approve it.</p>
+      <p class="prose">Create a profile, pick a workout and start a session. The demo keeps its data in a temp folder, so it won't touch real rides. You need Node 24 and pnpm.</p>
+      <p class="prose">For real rides on a Mac, run <code>pnpm app</code>. It builds an openCycle app into your Applications folder. Open it, allow Bluetooth once, and it starts everything and opens the browser. Quit it from the menu bar. On any other computer, <code>pnpm start</code> serves the whole thing on port 4000.</p>
 
       <figure class="shot shot--wide">
         <video data-walkthrough controls playsinline preload="none" poster="media/poster.webp" width="1920" height="1080">
           <source src="media/ride.mp4" type="video/mp4">
         </video>
-        <figcaption>A recorded simulator session, 40 seconds: the jump into a new system, a burn pursuit ending with the raider down, two riders chasing past a black hole, and arrival.</figcaption>
+        <figcaption>40 seconds from the simulator. The jump into a new system, a burn that ends with the raider down, two riders on the same chase, then arrival.</figcaption>
       </figure>
     </div>
   </section>
@@ -241,9 +241,9 @@ OPENCYCLE_SIM=2x2 OPENCYCLE_DATA_DIR=/tmp/opencycle-demo pnpm dev</code></pre>
         <circle cx="12" cy="17.2" r="0.95" fill="currentColor"></circle>
       </svg>
       <div>
-        <h2>There is no login.</h2>
-        <p>Anyone who can reach the server can start sessions, change profiles and read ride data. Run it on a home network you trust, and never expose it to the internet.</p>
-        <p>The server listens on all interfaces so a TV or tablet on your network can show the ride. <code>OPENCYCLE_HOST=127.0.0.1</code> keeps it on this machine only.</p>
+        <h2>There's no login.</h2>
+        <p>Anyone who can reach the server can start sessions, change profiles and read ride data. Run it on a home network you trust. Don't put it on the internet.</p>
+        <p>The server listens on your whole network so a TV or tablet can show the ride. <code>OPENCYCLE_HOST=127.0.0.1</code> keeps it on this computer.</p>
       </div>
     </div>
   </section>
@@ -263,7 +263,7 @@ OPENCYCLE_SIM=2x2 OPENCYCLE_DATA_DIR=/tmp/opencycle-demo pnpm dev</code></pre>
         </svg>
         <span class="mark__word">openCycle</span>
       </span>
-      <p>An open-source indoor cycling app. MIT licensed.</p>
+      <p>Open-source indoor cycling. MIT licensed.</p>
     </div>
     <div class="foot__col">
       <h3>Credits</h3>

@@ -50,15 +50,222 @@ export function legLabel(legKind: LegKind, leg: Leg | null): string {
   return leg?.label ?? KIND_LABEL[legKind];
 }
 
+export interface LegTargetInput {
+  /** Riders in the session: one rider reads watts, two or more read %FTP. */
+  riders: number;
+  ftpW: number;
+  biasPct: number;
+}
+
+/**
+ * The target column of a sidebar step row. A single rider reads the watts the
+ * engine would hold (`pct × ftpW × (1 + bias)`, the same arithmetic as the
+ * server's biasedTarget); two or more riders read %FTP instead, because each
+ * rider card already carries its own watts. Ramps read `150→220 W` / `75→88%`;
+ * a leg with no %FTP at all (free) has no target to state.
+ */
+export function legTargetLabel(leg: Leg, input: LegTargetInput): string {
+  const start = leg.startPctFtp ?? leg.endPctFtp;
+  const end = leg.endPctFtp ?? leg.startPctFtp;
+  if (start === null || end === null) return 'FREE';
+  if (input.riders > 1) {
+    const a = String(Math.round(start * 100));
+    const b = String(Math.round(end * 100));
+    return a === b ? `${a}%` : `${a}→${b}%`;
+  }
+  const watts = (pct: number): number => Math.round(pct * input.ftpW * (1 + input.biasPct / 100));
+  const a = watts(start);
+  const b = watts(end);
+  return a === b ? `${a} W` : `${a}→${b} W`;
+}
+
 /** Seconds left in the leg on the workout clock; null without a workout clock. */
 export function legRemainingS(leg: Leg, workoutClockS: number | null): number | null {
   if (workoutClockS === null) return null;
   return Math.max(0, leg.endS - workoutClockS);
 }
 
+/** How far the leg has run on the workout clock, 0..1; 0 without a clock. */
+export function legFillFraction(leg: Leg, workoutClockS: number | null): number {
+  const span = leg.endS - leg.startS;
+  if (workoutClockS === null || span <= 0) return 0;
+  return Math.min(1, Math.max(0, (workoutClockS - leg.startS) / span));
+}
+
 /** Objective legs in a leg list; 0 when the list is null. */
 export function objectiveLegCount(legs: Leg[] | null): number {
   return legs === null ? 0 : legs.filter((leg) => leg.objective).length;
+}
+
+/**
+ * Sidebar step rows: how many whole rows the list window shows at once. Six
+ * rows at label-sized type is the floor for reading the list from 3 m on a
+ * 1080p TV; more rows would drop the type back under that.
+ */
+export const STEP_WINDOW_ROWS = 6;
+/** The current row reads taller than the rest, in plain-row units. */
+export const STEP_CURRENT_SPAN = 1.4;
+/**
+ * List viewport height in the same units: seven rows, one of them the current
+ * row. Sizing the viewport to this (rather than to seven plain rows) is what
+ * keeps every row whole at the window's edges.
+ */
+export const STEP_WINDOW_UNITS = STEP_WINDOW_ROWS + STEP_CURRENT_SPAN - 1;
+
+/** Free legs carry no %FTP; the profile draws them as a low stub of the track. */
+const FREE_LEG_HEIGHT = 0.12;
+
+export interface ProfileBar {
+  /** Leg index in the leg list. */
+  index: number;
+  kind: LegKind;
+  /** Left edge as a fraction of the workout's duration, 0..1. */
+  x: number;
+  /** Width as a fraction of the workout's duration, 0..1. */
+  width: number;
+  /** Bar top at the left edge, as a fraction measured down from the track top. */
+  top: number;
+  /** Bar top at the right edge; differs from `top` only on ramp legs. */
+  topRight: number;
+  /** True when the leg's target moves across it (a sloped bar). */
+  ramp: boolean;
+}
+
+export interface WorkoutProfile {
+  bars: ProfileBar[];
+  /** Whole-workout seconds: the last leg's end on the workout clock. */
+  totalS: number;
+  /**
+   * %FTP at the top of the track, as a fraction: the workout's peak, but never
+   * below 1 so the FTP gridlines sit at the same reading in every workout.
+   */
+  scale: number;
+}
+
+/**
+ * Geometry of the sidebar's mini profile: one bar per leg, width proportional
+ * to its share of the workout and top proportional to its %FTP against the
+ * whole workout's peak. Ramps come back sloped (a trapezoid: `top` at the left
+ * edge, `topRight` at the right). Free legs have no %FTP target, so they draw
+ * a low stub of the track rather than a claimed effort.
+ */
+export function workoutProfile(legs: readonly Leg[] | null): WorkoutProfile {
+  if (legs === null || legs.length === 0) return { bars: [], totalS: 0, scale: 1 };
+  let totalS = 0;
+  let peak = 0;
+  for (const leg of legs) {
+    totalS = Math.max(totalS, leg.endS);
+    for (const pct of [leg.startPctFtp, leg.endPctFtp]) if (pct !== null) peak = Math.max(peak, pct);
+  }
+  const scale = Math.max(1, peak);
+  const bars = legs.map((leg) => {
+    const heightAt = (pct: number | null): number => (pct === null ? FREE_LEG_HEIGHT : Math.min(1, pct / scale));
+    const top = 1 - heightAt(leg.startPctFtp);
+    const topRight = 1 - heightAt(leg.endPctFtp);
+    return {
+      index: leg.index,
+      kind: leg.kind,
+      x: totalS <= 0 ? 0 : leg.startS / totalS,
+      width: totalS <= 0 ? 0 : (leg.endS - leg.startS) / totalS,
+      top,
+      topRight,
+      ramp: Math.abs(top - topRight) > 1e-9,
+    };
+  });
+  return { bars, totalS, scale };
+}
+
+/** Playhead position across the profile track, 0..1; 0 with no clock or legs. */
+export function profilePlayhead(legs: readonly Leg[] | null, workoutClockS: number | null): number {
+  if (legs === null || legs.length === 0 || workoutClockS === null) return 0;
+  const totalS = workoutProfile(legs).totalS;
+  if (totalS <= 0) return 0;
+  return Math.min(1, Math.max(0, workoutClockS / totalS));
+}
+
+export interface StepWindow {
+  /**
+   * Row units hidden above the list viewport (what the list translates by).
+   * One unit is one plain row; the current row spans `currentSpan` of them.
+   */
+  offset: number;
+  /** Rows sit above / below the window (the edge fades). */
+  moreAbove: boolean;
+  moreBelow: boolean;
+}
+
+/**
+ * Scroll window over the step list: the current row sits one row down from the
+ * top whenever there is room, and the window stops at the workout's end (so the
+ * current row drifts down near the last legs). `visibleUnits` is the list
+ * viewport's height in plain-row units and `currentSpan` the current row's, so
+ * the tail clamp lands on a row boundary and never leaves half a row showing.
+ */
+export function stepWindow(
+  count: number,
+  currentIndex: number | null,
+  visibleUnits = STEP_WINDOW_UNITS,
+  currentSpan = STEP_CURRENT_SPAN,
+): StepWindow {
+  if (count <= 0 || visibleUnits <= 0) return { offset: 0, moreAbove: false, moreBelow: false };
+  const totalUnits = count + Math.max(0, currentSpan - 1);
+  const anchor = currentIndex ?? 0;
+  const offset = Math.min(Math.max(anchor - 1, 0), Math.max(0, totalUnits - visibleUnits));
+  return { offset, moreAbove: offset > 0, moreBelow: offset + visibleUnits < totalUnits - 1e-9 };
+}
+
+/**
+ * Clean (`true`) / not clean (`false`) survey per completed objective leg,
+ * from the received legCompleted events. Same source of truth the route strip
+ * used: a leg shows its survey marker only when that leg reported one, and a
+ * rider's own events only.
+ */
+export function surveyMarks(events: readonly SessionEvent[], riderId: string): Record<number, boolean> {
+  const marks: Record<number, boolean> = {};
+  for (const event of events) {
+    if (event.kind !== 'legCompleted' || !event.objective || event.riderId !== riderId) continue;
+    marks[event.legIndex] = event.clean;
+  }
+  return marks;
+}
+
+export interface SurveyMarker {
+  glyph: string;
+  /** Spoken form: the glyph is decorative next to it. */
+  title: string;
+  clean: boolean;
+}
+
+/** Glyph + label for a done row's survey: ✓ clean, · not clean, null for none. */
+export function surveyMarker(clean: boolean | undefined): SurveyMarker | null {
+  if (clean === undefined) return null;
+  return clean
+    ? { glyph: '✓', title: 'Survey locked — clean leg', clean: true }
+    : { glyph: '·', title: 'No survey — leg not clean', clean: false };
+}
+
+export interface WorkoutHeader {
+  name: string;
+  /** `12:30 / 30:00` on the workout clock. */
+  clock: string;
+  /** `17:30 LEFT`, or `COMPLETE` once the workout clock is gone. */
+  remaining: string;
+}
+
+/**
+ * Sidebar header: which workout, how far in, and how much is left. `totalS` is
+ * the workout's own length (last leg end), so the readout stays whole after the
+ * last leg, when the snapshot's clock and remaining fields are both null.
+ */
+export function workoutHeader(
+  name: string | undefined,
+  clockS: number | null,
+  totalS: number,
+  remainingS: number | null,
+): WorkoutHeader {
+  const clock = `${fmtClock(clockS ?? totalS)} / ${fmtClock(totalS)}`;
+  if (remainingS === null || remainingS <= 0) return { name: name ?? 'WORKOUT', clock, remaining: 'COMPLETE' };
+  return { name: name ?? 'WORKOUT', clock, remaining: `${fmtClock(remainingS)} LEFT` };
 }
 
 /** Rounding on-target share of a leg's targeted seconds; 0 before any target time. */

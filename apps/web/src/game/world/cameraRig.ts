@@ -3,7 +3,19 @@ import type { LegKind } from '@opencycle/shared';
 import * as THREE from 'three';
 
 import type { GameFrame } from '../director.js';
-import { ARRIVAL_DEST_SCREEN, CRUISE_DEST_SCREEN, PLANET_DIR } from './composition.js';
+import {
+  ARRIVAL_DEST_SCREEN,
+  CARD_ROW_RIDERS,
+  CHASE_DISTANCE,
+  CHASE_FLEET_SCREEN,
+  CRUISE_DEST_SCREEN,
+  KEEP_OUT,
+  PLANET_DIR,
+  TRAVEL_DIR,
+  UP,
+  axisFor,
+  screenDirection,
+} from './composition.js';
 import type { Attitude } from './flight.js';
 import type { ShipBounds } from './fleet.js';
 import { clamp, clamp01, damp, easeInCubic, radians, smoothstep } from './math.js';
@@ -12,14 +24,17 @@ import { clamp, clamp01, damp, easeInCubic, radians, smoothstep } from './math.j
  * Elite-style external camera. Every setup is solved the same way: an aim
  * direction lands on its screen mark, the smoothed fleet centre lands on the
  * fleet mark, and the camera sits `distance` from the fleet along that line.
- * The camera never copies the ships' attitude: it lags their mean heading a
- * little (and rolls at most 3 deg), so the hulls visibly roll and yaw inside
- * the frame before the camera catches up.
+ * The camera never copies the ships' attitude: it lags their mean flight
+ * heading a little (and rolls at most 3 deg), so the hulls visibly roll and yaw
+ * inside the frame before the camera catches up. Guns tracking the raider are
+ * not a heading: the camera ignores them.
  *
- * Setups (hard cuts only at leg boundaries):
- *  - chase: aims at the destination; always on the first leg, on every burn
- *    (the pursuit reads first) and from arrival on;
- *  - side: a low track across the fleet with the anchor behind it;
+ * Setups (hard cuts only at leg boundaries), each behind the fleet so the hulls
+ * point into the scene at the travel vanishing point:
+ *  - chase: aims at the destination, just past the vanishing point; always on
+ *    the first leg, on every burn (the pursuit reads first) and from arrival on;
+ *  - side: a low track off the fleet's quarter, the vanishing point low left
+ *    and the anchor behind the fleet;
  *  - wide: pulled far back and high, the fleet tiny against the anchor.
  * Side and wide rotate in on cruise, climb, coast and approach legs only,
  * backed off so no hull spans more than about a fifth of the frame width.
@@ -28,7 +43,7 @@ import { clamp, clamp01, damp, easeInCubic, radians, smoothstep } from './math.j
  *
  * No shake: the only rotation impulses are the boost and raider-kill kicks,
  * each under 0.4 deg for 0.3 s. A keep-out guard slides the camera so no hull
- * enters the HUD zones (top 16 %, and x < 25 % or x > 75 % below y = 57 %).
+ * enters the HUD zones (KEEP_OUT: route strip, workout sidebar, rider cards).
  */
 export type ShotSetup = 'chase' | 'side' | 'wide';
 
@@ -42,10 +57,11 @@ interface Setup {
   yawFollow: number;
 }
 
+/** Aim marks: the destination on chase, the travel vanishing point on side and wide. */
 const SETUPS: Record<ShotSetup, Setup> = {
-  chase: { aim: CRUISE_DEST_SCREEN, fleet: { x: 0.47, y: 0.57 }, distance: 30, yawFollow: 0.3 },
-  side: { aim: { x: 0.34, y: 0.44 }, fleet: { x: 0.58, y: 0.42 }, distance: 34, yawFollow: 0.15 },
-  wide: { aim: { x: 0.6, y: 0.34 }, fleet: { x: 0.42, y: 0.66 }, distance: 150, yawFollow: 0 },
+  chase: { aim: CRUISE_DEST_SCREEN, fleet: CHASE_FLEET_SCREEN, distance: CHASE_DISTANCE, yawFollow: 0.3 },
+  side: { aim: { x: 0.3, y: 0.45 }, fleet: { x: 0.64, y: 0.47 }, distance: 34, yawFollow: 0.15 },
+  wide: { aim: { x: 0.38, y: 0.36 }, fleet: { x: 0.47, y: 0.6 }, distance: 150, yawFollow: 0 },
 };
 /** Setup order for cruise, climb, coast and approach legs after the first. */
 const ROTATION: readonly ShotSetup[] = ['side', 'chase', 'wide', 'chase'];
@@ -56,6 +72,12 @@ const FREE_SHOTS: Partial<Record<LegKind, true>> = { cruise: true, climb: true, 
  * frame width (the sphere over-reads the hull, so hulls stay under 22 %).
  */
 const MAX_SHIP_WIDTH = 0.2;
+/**
+ * Three or more riders fill one full-width card row (KEEP_OUT.cardRow): every
+ * setup pulls back this much so the fleet fits above it (the lead hull still
+ * spans at least 12 % of the frame width in the chase).
+ */
+const CROWD_PULLBACK = 1.1;
 
 /** Fleet-centre follow time constant. */
 const CENTER_TAU_S = 0.45;
@@ -79,18 +101,14 @@ const KILL_KICK = radians(0.4);
 /** A raider kill holds the current shot this long, so the explosion plays out where it was framed. */
 const KILL_HOLD_MS = 3000;
 
-/** HUD keep-out (screen fractions from the top-left) plus a safety margin. */
-const TOP_KEEP = 0.16;
-const BAND_Y = 0.57;
-const BAND_LEFT = 0.25;
-const BAND_RIGHT = 0.75;
+/** HUD keep-out safety margin (screen fractions). */
 const MARGIN = 0.02;
 const GUARD_TAU_S = 0.25;
-/** Bounding radius fraction a hull covers on screen (broadside wings reach it). */
-const SILHOUETTE = 1;
+/** Bounding radius fraction a hull covers on screen (broadside wings and banked corners reach past it). */
+const SILHOUETTE = 1.1;
 
 /** Frame shift pose: straight down the travel axis, the fleet low centre. */
-const JUMP_AIM = new THREE.Vector3(0, 0.02, -1).normalize();
+const JUMP_AIM = TRAVEL_DIR.clone().addScaledVector(UP, 0.02).normalize();
 const JUMP: Setup = { aim: { x: 0.5, y: 0.42 }, fleet: { x: 0.5, y: 0.6 }, distance: 30, yawFollow: 0 };
 
 export class CameraRig {
@@ -104,7 +122,6 @@ export class CameraRig {
   cut = false;
   private arrivalMs = -1;
   private legKey = '';
-  private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly pos = new THREE.Vector3();
   private readonly aimDir = new THREE.Vector3();
   private readonly axis = new THREE.Vector3();
@@ -144,6 +161,7 @@ export class CameraRig {
   }
 
   /**
+   * @param destinationRadius world radius of the destination disc (last frame's).
    * @param jump 0..1 weight of the frame shift pose (1 in the tunnel).
    * @param fovAdd extra FOV in degrees from the frame shift sequence.
    */
@@ -156,7 +174,7 @@ export class CameraRig {
     attitude: Attitude,
     bounds: readonly ShipBounds[],
     destinationCenter: THREE.Vector3 | null,
-    anchorDir: THREE.Vector3,
+    destinationRadius: number,
     jump: number,
     fovAdd: number,
   ): void {
@@ -182,6 +200,8 @@ export class CameraRig {
       }
     }
     const setup = SETUPS[this.setup];
+    const crowd = frame.riders.length >= CARD_ROW_RIDERS;
+    const pull = crowd ? CROWD_PULLBACK : 1;
 
     // Follow the smoothed fleet centre.
     if (fleetCenter !== null) {
@@ -215,31 +235,32 @@ export class CameraRig {
     const tanX = tanY * camera.aspect;
 
     // Aim: the destination on chase (walking to its arrival mark with the
-    // push), the anchor on side and wide.
-    const aimMark = this.setup === 'chase' ? this.chaseMark(push) : setup.aim;
-    if (this.setup !== 'chase') this.aimDir.copy(anchorDir);
+    // push), the travel vanishing point on side and wide.
+    const discR = destinationCenter === null ? 0 : destinationRadius / Math.max(1, camera.position.distanceTo(destinationCenter)) / (2 * tanY);
+    const aimMark = this.setup === 'chase' ? this.chaseMark(push, discR) : setup.aim;
+    if (this.setup !== 'chase') this.aimDir.copy(TRAVEL_DIR);
     else if (destinationCenter !== null) this.aimDir.copy(destinationCenter).sub(this.center).normalize();
     else this.aimDir.copy(PLANET_DIR);
-    this.solve(this.aimDir, aimMark, setup, tanX, tanY, this.axis, this.pos);
+    this.solve(this.aimDir, aimMark, setup, pull, tanX, tanY, this.axis, this.pos);
     // The camera trails the fleet's turn a little (yaw), orbits on arrival.
     const swing = setup.yawFollow * this.lagYaw + (this.arrivalMs < 0 ? 0 : Math.sin(sinceArrivalS * ORBIT_RATE) * ORBIT_SWING_RAD);
     if (swing !== 0) {
-      this.rel.copy(this.pos).sub(this.center).applyAxisAngle(this.up, swing);
+      this.rel.copy(this.pos).sub(this.center).applyAxisAngle(UP, swing);
       this.pos.copy(this.center).add(this.rel);
-      this.axis.applyAxisAngle(this.up, swing);
+      this.axis.applyAxisAngle(UP, swing);
     }
     // Side and wide never let a hull fill the frame.
     if (this.setup !== 'chase') this.backOff(bounds, tanX);
 
     // Frame shift pose, blended in by the jump weight (a move, not a cut).
     if (jump > 0) {
-      this.solve(JUMP_AIM, JUMP.aim, JUMP, tanX, tanY, this.jumpAxis, this.jumpPos);
+      this.solve(JUMP_AIM, JUMP.aim, JUMP, pull, tanX, tanY, this.jumpAxis, this.jumpPos);
       const w = smoothstep(0, 1, jump);
       this.pos.lerp(this.jumpPos, w);
       this.axis.lerp(this.jumpAxis, w).normalize();
     }
 
-    this.applyGuard(bounds, tanX, tanY, dtS);
+    this.applyGuard(bounds, crowd, tanX, tanY, dtS);
     camera.position.copy(this.pos).add(this.guard);
     camera.up.set(0, 1, 0);
     this.target.copy(camera.position).add(this.axis);
@@ -259,9 +280,15 @@ export class CameraRig {
     camera.updateMatrixWorld();
   }
 
-  private chaseMark(push: number): { x: number; y: number } {
+  /**
+   * The destination's mark: cruising, it walks down as the disc (`discR`,
+   * frame heights) grows, so the limb stays under the route strip; the arrival
+   * push walks it on to its arrival mark.
+   */
+  private chaseMark(push: number, discR: number): { x: number; y: number } {
+    const cruiseY = Math.max(CRUISE_DEST_SCREEN.y, KEEP_OUT.top + MARGIN + discR);
     this.markTmp.x = CRUISE_DEST_SCREEN.x + (ARRIVAL_DEST_SCREEN.x - CRUISE_DEST_SCREEN.x) * push;
-    this.markTmp.y = CRUISE_DEST_SCREEN.y + (ARRIVAL_DEST_SCREEN.y - CRUISE_DEST_SCREEN.y) * push;
+    this.markTmp.y = cruiseY + (ARRIVAL_DEST_SCREEN.y - cruiseY) * push;
     return this.markTmp;
   }
 
@@ -290,48 +317,38 @@ export class CameraRig {
 
   /**
    * Put `aim` on `aimMark` (zero roll), then place the camera so the fleet
-   * centre lands on the setup's fleet mark at its distance.
+   * centre lands on the setup's fleet mark at its distance times `pull`.
    */
   private solve(
     aim: THREE.Vector3,
     aimMark: { x: number; y: number },
     setup: Setup,
+    pull: number,
     tanX: number,
     tanY: number,
     outAxis: THREE.Vector3,
     outPos: THREE.Vector3,
   ): void {
-    // Exact pinhole framing: a point at NDC (nx, ny) sits at the view-space
-    // direction (nx·tanX, ny·tanY, −1), so back the axis off by that offset.
-    this.right.crossVectors(aim, this.up).normalize();
-    this.camUp.crossVectors(this.right, aim).normalize();
-    outAxis
-      .copy(aim)
-      .addScaledVector(this.right, -(2 * aimMark.x - 1) * tanX)
-      .addScaledVector(this.camUp, -(1 - 2 * aimMark.y) * tanY)
-      .normalize();
-    this.right.crossVectors(outAxis, this.up).normalize();
-    this.camUp.crossVectors(this.right, outAxis).normalize();
-    this.fleetDir
-      .copy(outAxis)
-      .addScaledVector(this.right, (2 * setup.fleet.x - 1) * tanX)
-      .addScaledVector(this.camUp, (1 - 2 * setup.fleet.y) * tanY)
-      .normalize();
-    outPos.copy(this.center).addScaledVector(this.fleetDir, -setup.distance);
+    axisFor(aim, aimMark, tanX, tanY, outAxis);
+    screenDirection(outAxis, setup.fleet.x, setup.fleet.y, tanX, tanY, this.fleetDir);
+    outPos.copy(this.center).addScaledVector(this.fleetDir, -setup.distance * pull);
   }
 
   /**
    * Keep-out guard: from the unguarded pose, find the smallest camera slide
-   * that keeps every hull out of the HUD zones, then ease toward it.
+   * that keeps every hull out of the HUD zones, then ease toward it. `crowd`
+   * swaps the corner cards for the full-width card row.
    */
-  private applyGuard(bounds: readonly ShipBounds[], tanX: number, tanY: number, dtS: number): void {
-    this.right.crossVectors(this.axis, this.up).normalize();
+  private applyGuard(bounds: readonly ShipBounds[], crowd: boolean, tanX: number, tanY: number, dtS: number): void {
+    this.right.crossVectors(this.axis, UP).normalize();
     this.camUp.crossVectors(this.right, this.axis).normalize();
     let pushRight = 0;
     let pushLeft = 0;
     let pushDown = 0;
+    let pushUp = 0;
     let depthX = 1;
-    let depthY = 1;
+    let depthDown = 1;
+    let depthUp = 1;
     for (const b of bounds) {
       this.rel.copy(b.position).sub(this.pos);
       const z = this.rel.dot(this.axis);
@@ -340,27 +357,36 @@ export class CameraRig {
       const sy = 0.5 - (0.5 * this.rel.dot(this.camUp)) / (z * tanY);
       const rx = (0.5 * b.radius * SILHOUETTE) / (z * tanX);
       const ry = (0.5 * b.radius * SILHOUETTE) / (z * tanY);
-      const top = TOP_KEEP + MARGIN - (sy - ry);
+      const top = KEEP_OUT.top + MARGIN - (sy - ry);
       if (top > pushDown) {
         pushDown = top;
-        depthY = z;
+        depthDown = z;
       }
-      if (sy + ry > BAND_Y) {
-        const left = BAND_LEFT + MARGIN - (sx - rx);
-        const right = sx + rx - (BAND_RIGHT - MARGIN);
-        if (left > pushRight) {
-          pushRight = left;
-          depthX = z;
-        }
-        if (right > pushLeft) {
-          pushLeft = right;
-          depthX = z;
-        }
+      const row = crowd ? sy + ry - (KEEP_OUT.cardRow - MARGIN) : 0;
+      if (row > pushUp) {
+        pushUp = row;
+        depthUp = z;
+      }
+      // Sidebar down the left; one or two riders' cards bottom left and right.
+      const side = sy + ry > KEEP_OUT.sideTop && sy - ry < KEEP_OUT.sideBottom ? KEEP_OUT.sideRight + MARGIN - (sx - rx) : 0;
+      const cards = !crowd && sy + ry > KEEP_OUT.cards;
+      const left = Math.max(side, cards ? KEEP_OUT.cardsLeft + MARGIN - (sx - rx) : 0);
+      const right = cards ? sx + rx - (KEEP_OUT.cardsRight - MARGIN) : 0;
+      if (left > pushRight) {
+        pushRight = left;
+        depthX = z;
+      }
+      if (right > pushLeft) {
+        pushLeft = right;
+        depthX = z;
       }
     }
-    // Screen fractions to world: moving the camera left slides content right.
+    // Screen fractions to world: moving the camera left slides content right,
+    // moving it up slides content down; opposed pushes split the difference.
     const shiftX = (pushRight > 0 && pushLeft > 0 ? (pushRight - pushLeft) / 2 : pushRight - pushLeft) * 2 * depthX * tanX;
-    const shiftY = pushDown * 2 * depthY * tanY;
+    const down = pushDown * 2 * depthDown * tanY;
+    const up = pushUp * 2 * depthUp * tanY;
+    const shiftY = pushDown > 0 && pushUp > 0 ? (down - up) / 2 : down - up;
     this.guardTarget.copy(this.right).multiplyScalar(-shiftX).addScaledVector(this.camUp, shiftY);
     if (this.cut) this.guard.copy(this.guardTarget);
     else this.guard.lerp(this.guardTarget, dtS <= 0 ? 1 : 1 - Math.exp(-dtS / GUARD_TAU_S));

@@ -59,7 +59,7 @@ export default function StatusCluster() {
   const ws = WS_LABEL[wsStatus];
 
   return (
-    <div className="pointer-events-none absolute left-[clamp(12px,1.35vw,44px)] top-[clamp(16px,1.77vw,56px)] z-30 flex flex-col items-start gap-[clamp(4px,0.42vw,14px)] font-display uppercase tracking-[0.06em]">
+    <div className="pointer-events-none absolute left-[clamp(12px,1.35vw,44px)] top-[clamp(16px,1.77vw,56px)] z-30 flex flex-col items-start gap-[clamp(3px,0.31vw,10px)] font-display uppercase tracking-[0.06em]">
       <span className="text-[clamp(15px,1.25vw,38px)] text-dim">
         Elapsed <span className="font-semibold tabular-nums text-ink">{fmtClock(elapsedS)}</span>
       </span>

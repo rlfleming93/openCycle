@@ -1,89 +1,118 @@
 # openCycle
 
-openCycle is an open-source indoor cycling app. It controls Wahoo KICKR trainers over Bluetooth in ERG mode, runs several riders on one machine, records every ride as a standard FIT file, builds training plans, and syncs with Garmin Connect. While you ride, your workout flies a small fleet of ships across space.
+I built my own indoor cycling app. It holds my Wahoo KICKR at the watts the workout asks for, records every ride as a FIT file and uploads it to Garmin. It also lets more than one of us ride on the same computer. While you ride, the workout flies a small fleet of ships to a new star system.
+
+It replaced the subscription app I was paying for. It's MIT licensed.
 
 Site: https://opencycle.pages.dev
 
-![A ride in progress: the fleet flies toward the destination planet, with the route strip at the top and the rider card at the bottom](docs/media/ride.webp)
+![Two riders on a burn chasing a raider, with the workout sidebar on the left and the rider cards at the bottom](docs/media/ride.webp)
 
 ## The voyage
 
-Every workout is a flight to a new star system. Each system has a colossal anchor to fly toward: a black hole that bends the starlight around it, a blue supergiant or a binary pair. The session opens with a jump through hyperspace, and the ships fly with weight: they bank into turns, weave, boost and overtake each other.
+Every workout is a flight to a new star system. I wanted it to look like Interstellar and fly like Elite Dangerous. So every system has something huge in it: a black hole bending the starlight around it, a blue supergiant, or two stars orbiting each other. Each session opens with a jump through hyperspace.
 
-- **The workout clock is the mission clock.** You arrive by finishing the workout. How hard you push changes what you find there, never whether you get there.
-- **Legs.** The workout is split into legs: launch, cruise, climb, burn, coast and approach. Interval efforts become burns. The route strip at the top of the screen shows every leg and how long is left in the current one.
-- **Surveys.** Each cruise, climb and burn leg is a survey. Hold within 10% of the target for at least 85% of the leg and the survey locks: a probe launches toward the planet, and on arrival that survey lights up a ring, moon or station in the new system. Going over target doesn't count.
-- **Pursuits.** Every burn is a chase. A raider warps in ahead of the fleet, and while you hold your target your ship fires at it and the lock builds. Finish the burn clean and the raider goes down; miss it and the raider escapes. Nobody takes damage.
-- **Your voyage.** Each rider keeps a star map of every system they've reached, with their surveys. The next destination is always known in advance, so the Voyage page can show where your planned workouts will take you.
-- **Riding together.** With two or more riders, everyone flies to the lead rider's destination in formation. When everyone holds their zone together, a tether links the ships. When one rider's cadence drops out and another pushes 10% over their own target for 15 seconds to cover, a shield goes up around the struggling ship in the helper's color.
-- **Free rides** cruise open space with no destination.
+- **The workout is the mission clock.** You get there by finishing the workout. How hard you push changes what you find when you arrive. It never decides whether you arrive.
+- **Legs.** The workout is split into legs: launch, cruise, climb, burn, coast and approach. Intervals become burns. The sidebar on the left lists every leg and shows where you are in the workout.
+- **Surveys.** Every cruise, climb and burn leg is a survey chance. Stay within 10% of the target for 85% of the leg and the survey locks. When you arrive, each locked survey lights up a ring, a moon or a station. Going over target doesn't count.
+- **Pursuits.** Every burn is a chase. A raider warps in ahead of you, and while you're on target your ship shoots at it and the lock fills. Finish the burn clean and it goes down. Miss it and it gets away. Nobody takes damage.
+- **Your voyage.** Each rider has a star map of every system they've reached. The next stop is already picked, so a planned workout already has a destination.
+- **Riding together.** Everyone flies to the same destination and chases the same raider. Hold your zones together and a tether links the ships. If someone's cadence drops, someone else can cover by riding 10% over their own target for fifteen seconds.
+- **Free rides** just cruise open space.
 
-The trainer, the targets and the FIT file are the source of truth. The game only reads them.
+The game only reads the trainer and the workout. It never changes your targets, and the FIT file is the same either way.
 
-![Arrival at a surveyed system](docs/media/arrival.webp)
+![Arrival, in orbit beside a ringed planet in front of a black hole](docs/media/arrival.webp)
 
 ![The Voyage page star map](docs/media/voyage.webp)
 
 ## Hardware
 
-- **Trainers:** tested with the Wahoo KICKR CORE using Bluetooth FTMS ERG control. Other FTMS trainers may work but are untested.
-- **Heart rate:** any Bluetooth heart rate strap that uses the standard Heart Rate Service.
-- **Computer:** developed and run on macOS. The server needs Node 24 (the Bluetooth stack is a native addon and does not run on Bun).
+- **Trainer:** I've only tested it on my own Wahoo KICKR CORE, over Bluetooth FTMS ERG. Other FTMS trainers might work. I just haven't tried one.
+- **Heart rate:** any Bluetooth strap that uses the standard Heart Rate Service.
+- **Computer:** macOS and Node 24. The Bluetooth library is a native addon, so the server needs Node. Bun won't run it.
 
-## Quick start with the simulator
+## Try it
 
-You don't need a trainer to try it. The simulator adds fake trainers and heart rate straps.
+You don't need a trainer. The simulator fakes two trainers and two heart rate straps.
 
 ```bash
 pnpm install
-OPENCYCLE_SIM=2x2 OPENCYCLE_DATA_DIR=/tmp/opencycle-demo pnpm dev
+pnpm demo
 ```
 
-Open http://localhost:5173, create a profile, then start a session from the session builder. `2x2` means two simulated trainers and two heart rate straps. `OPENCYCLE_DATA_DIR` keeps the demo's database and FIT files out of your real data folder (`~/.opencycle` by default).
+That builds the app, starts it on http://localhost:4000 and opens your browser. Create a profile, pick a workout and start a session. The demo keeps its data in a temp folder, so it won't touch real rides.
 
-Other commands:
+You need Node 24 and pnpm 10.26 or later. The repo pins pnpm through `packageManager`.
+
+## The Mac app
 
 ```bash
-pnpm dev:server  # server only (:4000)
-pnpm check       # type-check every package
-pnpm test        # run the test suite
+pnpm app
 ```
 
-Requirements: Node 24 and pnpm 10.26 or later (the repo pins pnpm through `packageManager`). Workspace packages export TypeScript source directly, so run the server with `pnpm dev:server`, not plain `node`.
+This builds `openCycle.app` into `~/Applications`. Open it and allow Bluetooth once when macOS asks. It starts the server, opens the browser and puts an openCycle item in the menu bar with Open, Show logs and Quit.
 
-## Real Bluetooth on macOS
+A few things worth knowing:
 
-Set `OPENCYCLE_BLE=1` to scan for real devices.
+- Quitting finishes any ride in progress first, so the FIT file is saved.
+- Logs are in `~/Library/Logs/openCycle/server.log`. If the server crashes, the app shows the last lines.
+- The app runs the code from this folder. After you pull changes, run `pnpm app` again. If you move the folder, rebuild.
+- Each rebuild re-signs the app, so macOS might ask for Bluetooth again. Say yes and it sticks.
+- To run a one-off command with the app's Bluetooth permission, like the Garmin login: `open -a openCycle --args --exec "pnpm garmin:login --rider <id>"`.
 
-macOS denies Bluetooth to SSH and headless processes (`noble` reports `unauthorized`), and the Privacy & Security pane won't register SIP-protected binaries like `sshd-session`. The fix that works is an app-bundle identity: wrap `scripts/rig-app-launch.sh` in a minimal `~/Applications/openCycle.app` (an Info.plist with `NSBluetoothAlwaysUsageDescription`, ad-hoc codesigned). Launch it with `open -n ~/Applications/openCycle.app`. macOS asks once on screen and the permission sticks to the bundle. The default launch runs `pnpm dev:server` with `OPENCYCLE_BLE=1`. To run something else once, put the command in `/tmp/opencycle-app-cmd`. Output goes to `/tmp/opencycle-app.log`.
+`pnpm app` options: `--sim` (simulator, no Bluetooth), `--out <dir>`, `--data-dir <path>`, `--no-build`.
+
+The app exists because macOS won't give Bluetooth to a process started from a terminal over SSH, or to anything without an app bundle. The permission belongs to the app, and the server it starts inherits it.
+
+## Any other computer
+
+```bash
+pnpm start
+```
+
+It builds the UI if needed and serves everything on port 4000. Add `--ble` (`pnpm start --ble`) to scan for real Bluetooth devices.
+
+For development:
+
+```bash
+pnpm dev        # server on :4000, Vite with hot reload on :5173
+pnpm dev:server # server only
+pnpm build      # build the web UI into apps/web/dist
+pnpm check      # type-check every package
+pnpm test       # run the tests
+```
 
 ## Network and security
 
-The server listens on all interfaces (`0.0.0.0:4000`) so a TV or tablet on your home network can show the ride. Set `OPENCYCLE_HOST=127.0.0.1` to keep it on this machine only.
+The server listens on your whole network, so a TV or tablet can show the ride at `http://<your-mac's-ip>:4000`. There's nothing to set up for that. `OPENCYCLE_HOST=127.0.0.1` keeps it on this computer.
 
-> **There is no login.** Anyone who can reach the server can start sessions, change profiles and read ride data. Run it on a home network you trust. Never expose it to the internet.
+> **There's no login.** Anyone who can reach the server can start sessions, change profiles and read ride data. Run it on a home network you trust. Don't put it on the internet.
 
-## Layout
+Rides and profiles live in `~/.opencycle`. Set `OPENCYCLE_DATA_DIR` to put them somewhere else.
 
-- `packages/shared`: zod schemas and types, FTMS/HRS constants, physics, the training load model and the voyage rules
-- `apps/server`: Node 24 server with Bluetooth, the session engine, ERG control, the FIT recorder, the REST and WebSocket API, Garmin sync and training plans
-- `apps/web`: Vite, React and three.js client
+## What's in the repo
+
+- `packages/shared`: schemas and types, the Bluetooth protocol constants, physics, the training load model and the voyage rules
+- `apps/server`: the Node server (Bluetooth, sessions, ERG, the FIT recorder, the API, Garmin sync and training plans)
+- `apps/web`: the React and three.js app
+- `packaging/macos`: the Mac app launcher and icon
 - `assets/ships`: the Blender pipeline that finishes the ship models
-- `data/plans`: curated workouts and plan templates
+- `data/plans`: workouts and plan templates
 - `skills/workout-author`: a Claude skill for writing workouts and plans
 - `docs`: the game design and the Bluetooth protocol notes
 
-## Workout authoring
+## Writing workouts
 
-Curated workouts live as JSON in `data/plans/*.json` and multi-week plan templates in `data/plans/templates/*.json` (see the schemas and zone conventions in `skills/workout-author/SKILL.md`). Validate any file or the whole directory with:
+Workouts are JSON in `data/plans/*.json`, and multi-week plan templates are in `data/plans/templates/*.json`. The schemas and zone conventions are in `skills/workout-author/SKILL.md`. Check a file or the whole folder with:
 
 ```bash
 pnpm workout:validate data/plans
 ```
 
-The script parses every workout against the shared WorkoutSchema, every template against TemplateSchema, and checks that all template `workoutId`s exist in the library. Exit 0 means the server will load them at boot.
+It checks every workout and template against the schemas, and that every workout a template uses exists. Exit 0 means the server will load them.
 
-The authoring skill ships in the repo. Symlink it into your personal skills so Claude Code picks it up:
+The authoring skill ships in the repo. Symlink it so Claude Code picks it up:
 
 ```bash
 ln -s "$(pwd)/skills/workout-author" ~/.claude/skills/workout-author
@@ -91,39 +120,24 @@ ln -s "$(pwd)/skills/workout-author" ~/.claude/skills/workout-author
 
 ## Garmin sync
 
-Two paths move rides between openCycle and Garmin Connect:
+**Importing old rides.** Drop a Garmin account-export ZIP or loose `.fit` files into `~/.opencycle/import/`.
 
-- **Import history.** Drop a Garmin account-export ZIP or loose `.fit` files
-  into the import folder (`<dataDir>/import/`, default
-  `~/.opencycle/import/`). Files in a per-rider subfolder (`import/<riderId>/`)
-  import under that rider (the folder name must be an existing profile id);
-  files at the top level stay unassigned until you assign them in History.
-  A file that imported at least one activity moves to `import/done/` (with a
-  `.err.txt` beside it when some members failed); a file that imported nothing
-  moves to `import/failed/`. You can also upload a ZIP from the UI or via
-  `POST /api/garmin/import-zip?riderId=<id>`. Imports are rejected (409) while
-  a session is active. `POST /api/garmin/pull/:riderId` pulls the last 30 days
-  of the rider's Garmin activities in the background. When re-importing an
-  export ZIP you already imported, select the rider in the import UI so the
-  rider-scoped dedupe skips the existing rides (re-importing unassigned
-  duplicates them).
-- **Upload rides.** Finished rides upload to Garmin Connect automatically
-  when the rider's profile has Garmin autoUpload on **and** a saved login
-  exists. Retries are manual: a failed upload marks the ride `failed` in
-  History with the reason and shows a retry button. Garmin changes their web
-  flows without notice; when they do, uploads fail and rides stay marked
-  `failed` until this module is rebuilt. It is deliberately isolated so
-  nothing else depends on its internals.
+- Put them in `import/<riderId>/` to import them for that rider. The folder name has to be an existing profile id.
+- Files at the top level stay unassigned until you assign them in History.
+- A file that imported something moves to `import/done/`, with a `.err.txt` next to it if some rides failed. A file that imported nothing moves to `import/failed/`.
+- You can also upload a ZIP from the app, or `POST /api/garmin/import-zip?riderId=<id>`. Imports are refused while a session is running.
+- `POST /api/garmin/pull/:riderId` pulls the rider's last 30 days from Garmin in the background.
+- If you import the same export twice, pick the rider in the import screen so it skips rides it already has. Unassigned re-imports make duplicates.
 
-One-time login per rider (stores Playwright storage state on disk, never in
-the database, and no passwords in profiles):
+**Uploading rides.** Finished rides upload to Garmin Connect on their own when the rider's profile has auto-upload on and a saved login exists. If an upload fails, History shows the reason and a retry button. Garmin changes their login flow without warning, and when they do, uploads fail until this part gets fixed. It's kept separate so nothing else breaks with it.
+
+Log in once per rider:
 
 ```bash
 pnpm garmin:login --rider <profile-id>
 ```
 
-A browser window opens; complete sign-in and MFA by hand. The state file
-lands at `<dataDir>/garmin/<riderId>.json`; running it again overwrites it.
+A browser opens. Sign in and do the MFA by hand. The login is saved to `~/.opencycle/garmin/<riderId>.json`, never the database, and profiles don't store passwords. Running it again replaces it.
 
 ## Credits
 

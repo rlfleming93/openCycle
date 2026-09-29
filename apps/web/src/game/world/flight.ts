@@ -32,22 +32,24 @@ export interface LegFlight {
 /**
  * Seeded weave by leg kind. `pick` in 0..1 places the amplitude inside the
  * spec's band: burns 6-10 u, climb/cruise 3-5 u, coast/launch/approach 1-2 u.
+ * Seen from behind, a bank reads at full strength, so the limits stay short of
+ * knife-edge.
  */
 export function legFlight(legKind: LegKind | null, pick: number): LegFlight {
   const k = clamp01(pick);
   switch (legKind) {
     case 'burn':
-      return { lateral: lerp(6, 10, k), periodS: lerp(5, 7, k), accel: 16, bank: radians(62) };
+      return { lateral: lerp(6, 10, k), periodS: lerp(5, 7, k), accel: 16, bank: radians(48) };
     case 'climb':
     case 'cruise':
-      return { lateral: lerp(3, 5, k), periodS: lerp(8, 11, k), accel: 9, bank: radians(40) };
+      return { lateral: lerp(3, 5, k), periodS: lerp(8, 11, k), accel: 9, bank: radians(34) };
     case 'coast':
     case 'launch':
     case 'approach':
-      return { lateral: lerp(1, 2, k), periodS: lerp(11, 15, k), accel: 6, bank: radians(24) };
+      return { lateral: lerp(1, 2, k), periodS: lerp(11, 15, k), accel: 6, bank: radians(20) };
     default:
       // Open space flies like a loose cruise.
-      return { lateral: lerp(3, 4, k), periodS: lerp(9, 12, k), accel: 8, bank: radians(34) };
+      return { lateral: lerp(3, 4, k), periodS: lerp(9, 12, k), accel: 8, bank: radians(30) };
   }
 }
 
@@ -127,7 +129,7 @@ export function stepAngle(
 /** Nose travel speed that turns lateral velocity into a heading (u/s). */
 export const HEADING_SPEED = 32;
 /** Lateral acceleration that banks a hull 45 degrees (u/s²). */
-const BANK_G = 9;
+const BANK_G = 12;
 const MAX_YAW = radians(24);
 const MAX_PITCH = radians(14);
 

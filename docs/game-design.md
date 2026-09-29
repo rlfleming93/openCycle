@@ -121,8 +121,21 @@ telemetry, events) into one frame per animation tick.
 - **Pursuit**: the raider jinks, rolls and drops chaff under lock; in-band ships
   fire paired pulse bolts in their identity color plus yellow tracers. A kill is
   a fireball, shock ring and glowing debris; an escape is a warp-out.
-- **Travel**: speed streaks, dust and asteroids; asteroid density follows the
-  leg kind (densest on burns).
+- **Travel**: everything streams past along the travel direction: speed
+  streaks, dust, glinting debris and ice shards, rocks at three depths, hero
+  rocks that tumble past just outside a clear corridor around the fleet's and
+  the raider's sightlines, wreckage and now and then a derelict hull section.
+  Density follows the leg kind (burn dense with a dust haze, climb medium,
+  cruise sparse, coast open space) and sweeps in from far ahead. Hero rocks,
+  wreckage and the derelict never cover a HUD zone, the destination (disc plus
+  5% of the frame height) or the anchor's core: they fly headings that leave
+  the frame through the clear gaps and shrink away wherever they would still
+  overlap one. They stay out while the system is hidden and for 3 s after the
+  reveal, then return from far ahead.
+- **Passing bodies**: gas giants (some ringed), rocky and ice moons and the odd
+  station drift past beyond the destination, seeded per system, under the same
+  keep-clear rules; once per ride a big moon's limb slides by just below the
+  fleet. They also hold off for 3 s after the reveal.
 - **Route**: a dashed line from the fleet to the destination.
 - **Effects**: a survey probe flies from the ship to the planet on each clean
   cruise or climb leg; co-op tether, beacon flare and rescue shield.
@@ -134,12 +147,21 @@ telemetry, events) into one frame per animation tick.
 ## HUD
 
 The HUD is DOM over the canvas, sized with `clamp()` against the viewport width
-so it reads from about 3 m on 1080p and 4K screens. Color never carries state
-alone; every state also has a glyph or word.
+so it reads from about 3 m on 1080p and 4K screens. The sidebar measures its
+band in viewport height instead, because the world keeps that band clear.
+Color never carries state alone; every state also has a glyph or word.
 
-- **Route strip** (top center): the lead rider's legs proportional to duration,
-  done legs with survey dots, the current leg with its fill, the objective line
-  and `SURVEYS clean/total`. Free rides show `OPEN SPACE` instead.
+- **Route strip** (top center): the route header (`LEG n · BOUND FOR X`,
+  `ARRIVAL IN`), the objective line with the burn lock meter, and
+  `SURVEYS clean/total`. Free rides show `OPEN SPACE` instead.
+- **Workout sidebar** (left band, x < 20%): the lead rider's workout — name,
+  workout clock and time left, the whole workout as a mini profile with a
+  playhead over dimmed done time, then the step list scrolling so the current
+  step sits near the top. Each step shows its kind, duration and target (watts
+  for one rider, `%FTP` for two or more); the current step carries a fill bar,
+  its countdown and the live on-target share; done steps dim and carry a ✓
+  (clean survey) or · (not clean) marker. Hidden on free rides, and the flat
+  dashboard is unchanged.
 - **Rider cards** (bottom): effort badge, 3 s power, the workout command with
   time left and the next target, cadence, heart rate, and the leg's on-target
   percentage on objective legs.
@@ -164,7 +186,7 @@ do. The HUD is unaffected.
 |---|---|
 | 0 | Full quality: bloom, anamorphic streak, grain, AgX tone mapping, internal render up to 2560×1440 |
 | 1 | Lens off, tone mapping only (recovers after 10 s under 14 ms, at most 3 times) |
-| 2 | Cheaper anchor and half the bright stars; streaks, dust and asteroids halved |
+| 2 | Cheaper anchor and half the bright stars; every streaming class halved, no dust haze |
 | 3 | Internal render capped at 1920×1080 |
 | 4 | Planet noise octaves drop from 7 to 3 |
 | 5 | 3D frozen on the last frame |

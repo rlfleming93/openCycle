@@ -329,25 +329,7 @@ export class Destination {
 
     // Equatorial ring: thin annulus at 1.25-1.85 planet radii.
     this.ringGeo = new THREE.RingGeometry(1, 1.44, 128, 1);
-    this.ringMat = new THREE.ShaderMaterial({
-      uniforms: {
-        uInner: { value: 1 },
-        uOuter: { value: 1.44 },
-        uKey: { value: new THREE.Color(0xffffff) },
-        uSunDir: { value: new THREE.Vector3(0, 1, 0) },
-        uFill: { value: new THREE.Color() },
-        uAccent: { value: palette.accent.clone() },
-        uCenter: { value: this.center.clone() },
-        uPlanetR: { value: 1 },
-        uNoiseSeed: { value: 0 },
-        uReveal: { value: 1 },
-      },
-      vertexShader: RING_VERT,
-      fragmentShader: RING_FRAG,
-      transparent: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
+    this.ringMat = makeRingMaterial(palette.accent, this.center);
 
     this.outlineGeo = circleGeometry(1, 72);
     this.outlineMat = new THREE.LineBasicMaterial({ color: 0x7f8ea6, transparent: true, opacity: 0.28 });
@@ -556,6 +538,33 @@ export class Destination {
     for (const geo of this.ownedGeos) geo.dispose();
     this.group.clear();
   }
+}
+
+/**
+ * The banded ring (RING_FRAG) for a body at `center`: the destination's
+ * equatorial ring and the ringed flyby giants share it. Set `uPlanetR` to the
+ * body radius (the shadow cylinder), `uKey`/`uSunDir`/`uFill` from the light.
+ */
+export function makeRingMaterial(accent: THREE.Color, center: THREE.Vector3): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uInner: { value: 1 },
+      uOuter: { value: 1.44 },
+      uKey: { value: new THREE.Color(0xffffff) },
+      uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+      uFill: { value: new THREE.Color() },
+      uAccent: { value: accent.clone() },
+      uCenter: { value: center.clone() },
+      uPlanetR: { value: 1 },
+      uNoiseSeed: { value: 0 },
+      uReveal: { value: 1 },
+    },
+    vertexShader: RING_VERT,
+    fragmentShader: RING_FRAG,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
 }
 
 /** Circle outline geometry shared by every unrevealed feature slot. */

@@ -2,26 +2,58 @@ import * as THREE from 'three';
 
 import { radians } from './math.js';
 
+export const UP = new THREE.Vector3(0, 1, 0);
+
 /**
- * The shot: one source of truth for where the fleet, the destination system and
- * the celestial anchor sit relative to the chase camera. cameraRig.ts,
- * planets.ts and anchor.ts all read it, so the composition cannot drift apart.
- *
- * Solved geometry (1920x1080, 42 deg vertical FOV):
- *  - fleet lead: 24 units from the camera at 20 deg azimuth (camera to port)
- *    and 13.5 deg above the fleet plane, so the lead projects to ~24% of the
- *    viewport width with its top surface and both wings showing;
- *  - the destination lands on CRUISE_DEST_SCREEN while cruising and walks to
- *    ARRIVAL_DEST_SCREEN as the arrival push runs, so a growing disc never
- *    slides under the route strip.
+ * The fleet's travel direction (world). The fleet, the raider and the hull art
+ * all fly the world frame with the nose on -Z, so this stays -Z: formation,
+ * weave and every resting nose run along it, and the streaks, dust, rocks and
+ * scenery flow away from its vanishing point.
  */
-export const RIG_DISTANCE = 24;
-export const RIG_AZIMUTH_RAD = radians(20);
-export const RIG_ELEVATION_RAD = radians(13.5);
-/** Where the fleet lead must land on screen. */
-export const LEAD_SCREEN = { x: 0.42, y: 0.62 } as const;
-/** Destination marks: cruise keeps it clear of the horizon HUD; arrival centres it. */
-export const CRUISE_DEST_SCREEN = { x: 0.62, y: 0.33 } as const;
+export const TRAVEL_DIR = new THREE.Vector3(0, 0, -1);
+
+/**
+ * HUD keep-outs in screen fractions from the top-left: the route strip across
+ * the top, the workout sidebar down the left, and the rider cards: bottom left
+ * and right for one or two riders, one full-width row for three or more.
+ * Hulls, the raider and its reticle, the destination and the anchor core stay
+ * out of all of them.
+ */
+export const KEEP_OUT = {
+  /** Route strip: y < top. */
+  top: 0.16,
+  /** Workout sidebar: x < sideRight while sideTop < y < sideBottom. */
+  sideRight: 0.2,
+  sideTop: 0.14,
+  sideBottom: 0.57,
+  /** One or two riders: cards where y > cards and x < cardsLeft or x > cardsRight. */
+  cards: 0.57,
+  cardsLeft: 0.25,
+  cardsRight: 0.75,
+  /** Three or more riders: one card row across the frame below this line (its top measures 0.625-0.66 at 16:9). */
+  cardRow: 0.62,
+} as const;
+
+/** Rider count from which the cards form one full-width row. */
+export const CARD_ROW_RIDERS = 3;
+
+/**
+ * The chase shot: one source of truth for where the travel vanishing point, the
+ * fleet, the destination system and the celestial anchor sit on screen.
+ * cameraRig.ts, planets.ts, anchor.ts and sky.ts all read it, so the
+ * composition cannot drift apart.
+ *
+ * Solved at 1920x1080 and a 42 deg vertical FOV: the camera rides behind and
+ * above the fleet, CHASE_DISTANCE from its centre on CHASE_FLEET_SCREEN, so the
+ * hulls point up the frame into the scene at TRAVEL_SCREEN, where the field
+ * streams from. The destination sits just past that vanishing point, up and to
+ * the right of the raider's lane, and walks to ARRIVAL_DEST_SCREEN as the
+ * arrival push runs, so a growing disc never slides under the route strip.
+ */
+export const TRAVEL_SCREEN = { x: 0.54, y: 0.34 } as const;
+export const CHASE_FLEET_SCREEN = { x: 0.47, y: 0.62 } as const;
+export const CHASE_DISTANCE = 34;
+export const CRUISE_DEST_SCREEN = { x: 0.63, y: 0.29 } as const;
 export const ARRIVAL_DEST_SCREEN = { x: 0.56, y: 0.42 } as const;
 /** Destination distance is fixed; the disc is scaled to the progress curve. */
 export const PLANET_DISTANCE = 2600;
@@ -32,98 +64,64 @@ export const PLANET_DISTANCE = 2600;
  */
 export const ANCHOR_SCREEN = { x: 0.8, y: 0.27 } as const;
 
-/** Nominal FOV the shot was solved at (weather moves it by at most 3 deg). */
-export const NOMINAL_FOV_Y_RAD = radians(42);
-export const NOMINAL_ASPECT = 16 / 9;
+/** Nominal frame the shot was solved at: 42 deg vertical FOV at 16:9 (weather moves the FOV by at most 3 deg). */
+const TAN_Y = Math.tan(radians(42) / 2);
+const TAN_X = TAN_Y * (16 / 9);
 
-export function nominalFovX(): number {
-  return 2 * Math.atan(Math.tan(NOMINAL_FOV_Y_RAD / 2) * NOMINAL_ASPECT);
-}
+const right = new THREE.Vector3();
+const up = new THREE.Vector3();
 
 /**
- * Camera position relative to its anchor (-X port, +Y up, +Z aft).
- * Defaults are the default chase pose; the rig passes its setup's pose.
+ * Pinhole framing: the zero-roll camera axis that puts world direction `aim`
+ * on screen point `mark` (a point at NDC (nx, ny) sits at the view-space
+ * direction (nx·tanX, ny·tanY, −1), so back the axis off by that offset).
  */
-export function rigOffset(
+export function axisFor(
+  aim: THREE.Vector3,
+  mark: { x: number; y: number },
+  tanX: number,
+  tanY: number,
   out: THREE.Vector3,
-  azimuth = RIG_AZIMUTH_RAD,
-  elevation = RIG_ELEVATION_RAD,
-  distance = RIG_DISTANCE,
 ): THREE.Vector3 {
-  const horizontal = distance * Math.cos(elevation);
-  return out.set(
-    -horizontal * Math.sin(azimuth),
-    distance * Math.sin(elevation),
-    horizontal * Math.cos(azimuth),
-  );
-}
-
-/**
- * The destination's world direction, derived from the shot above: the ship art
- * is solved first, and the system moves to wherever that puts the camera axis.
- * `LEAD_SCREEN` and `CRUISE_DEST_SCREEN` differ horizontally by
- * (fx - LEAD.x) * fovX, so the system sits that far to starboard of the
- * camera's tail axis; vertically the camera's 13.5 deg elevation plus the
- * screen difference sets the system's elevation.
- */
-export const PLANET_DIR = (() => {
-  const yaw = RIG_AZIMUTH_RAD + (CRUISE_DEST_SCREEN.x - LEAD_SCREEN.x) * nominalFovX();
-  const height = RIG_DISTANCE * Math.sin(RIG_ELEVATION_RAD);
-  // Pitch of the system as seen from the camera, then converted to world.
-  const pitchFromCamera =
-    -RIG_ELEVATION_RAD + (LEAD_SCREEN.y - CRUISE_DEST_SCREEN.y) * NOMINAL_FOV_Y_RAD;
-  const y = height + PLANET_DISTANCE * Math.tan(pitchFromCamera);
-  const pitch = Math.atan2(y, PLANET_DISTANCE);
-  return new THREE.Vector3(
-    Math.sin(yaw) * Math.cos(pitch),
-    Math.sin(pitch),
-    -Math.cos(yaw) * Math.cos(pitch),
-  ).normalize();
-})();
-
-/** Base camera position for a fleet lead at `anchor` (no arrival push). */
-export function baseCameraPosition(anchor: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
-  rigOffset(out);
-  return out.add(anchor);
-}
-
-/** World yaw of the camera axis that puts the destination on `fx`. */
-export function axisYaw(planetYaw: number, fovX: number, fx: number): number {
-  return planetYaw - (fx - 0.5) * fovX;
-}
-
-/** World pitch of the camera axis that puts the destination on `fy`. */
-export function axisPitch(planetPitch: number, fovY: number, fy: number): number {
-  return planetPitch - (0.5 - fy) * fovY;
-}
-
-/**
- * The cruise-pose camera axis direction (world). Sky/giant decorations use it
- * to place themselves relative to what the frame actually shows.
- */
-export function nominalAxisDirection(out: THREE.Vector3): THREE.Vector3 {
-  const base = baseCameraPosition(new THREE.Vector3(), new THREE.Vector3());
-  const toPlanet = PLANET_DIR.clone().multiplyScalar(PLANET_DISTANCE).sub(base).normalize();
-  const right = new THREE.Vector3().crossVectors(toPlanet, UP).normalize();
-  const up = new THREE.Vector3().crossVectors(right, toPlanet).normalize();
-  const fovX = nominalFovX();
+  right.crossVectors(aim, UP).normalize();
+  up.crossVectors(right, aim).normalize();
   return out
-    .copy(toPlanet)
-    .addScaledVector(right, -(2 * CRUISE_DEST_SCREEN.x - 1) * Math.tan(fovX / 2))
-    .addScaledVector(up, -(1 - 2 * CRUISE_DEST_SCREEN.y) * Math.tan(NOMINAL_FOV_Y_RAD / 2))
+    .copy(aim)
+    .addScaledVector(right, -(2 * mark.x - 1) * tanX)
+    .addScaledVector(up, -(1 - 2 * mark.y) * tanY)
     .normalize();
 }
+
+/** The world direction a zero-roll camera on `axis` shows at screen point (x, y). */
+export function screenDirection(
+  axis: THREE.Vector3,
+  x: number,
+  y: number,
+  tanX: number,
+  tanY: number,
+  out: THREE.Vector3,
+): THREE.Vector3 {
+  right.crossVectors(axis, UP).normalize();
+  up.crossVectors(right, axis).normalize();
+  return out
+    .copy(axis)
+    .addScaledVector(right, (2 * x - 1) * tanX)
+    .addScaledVector(up, (1 - 2 * y) * tanY)
+    .normalize();
+}
+
+/** The nominal chase axis: TRAVEL_DIR on TRAVEL_SCREEN. */
+const CHASE_AXIS = axisFor(TRAVEL_DIR, TRAVEL_SCREEN, TAN_X, TAN_Y, new THREE.Vector3());
 
 /** World direction that lands on screen point (x, y) in the nominal chase pose. */
 export function chaseDirection(x: number, y: number, out: THREE.Vector3): THREE.Vector3 {
-  const axis = nominalAxisDirection(new THREE.Vector3());
-  const right = new THREE.Vector3().crossVectors(axis, UP).normalize();
-  const up = new THREE.Vector3().crossVectors(right, axis).normalize();
-  return out
-    .copy(axis)
-    .addScaledVector(right, (2 * x - 1) * Math.tan(nominalFovX() / 2))
-    .addScaledVector(up, (1 - 2 * y) * Math.tan(NOMINAL_FOV_Y_RAD / 2))
-    .normalize();
+  return screenDirection(CHASE_AXIS, x, y, TAN_X, TAN_Y, out);
 }
 
-export const UP = new THREE.Vector3(0, 1, 0);
+/** The destination's world direction from the fleet: CRUISE_DEST_SCREEN in the chase pose. */
+export const PLANET_DIR = chaseDirection(CRUISE_DEST_SCREEN.x, CRUISE_DEST_SCREEN.y, new THREE.Vector3());
+
+/** Chase camera position for a fleet centred on `anchor` (no arrival push). */
+export function baseCameraPosition(anchor: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  return chaseDirection(CHASE_FLEET_SCREEN.x, CHASE_FLEET_SCREEN.y, out).multiplyScalar(-CHASE_DISTANCE).add(anchor);
+}

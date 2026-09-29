@@ -24,6 +24,7 @@ import { DeviceRegistry } from './devices/registry.js';
 import { SessionEngine } from './session/engine.js';
 import { Recorder } from './session/recorder.js';
 import { openDb } from './storage/db.js';
+import { registerWeb, resolveWebDir } from './web.js';
 
 const app = Fastify({ logger: true });
 await app.register(websocket);
@@ -86,6 +87,16 @@ attachVoyage(engine, db, (message) => app.log.info({ message }, 'voyage'));
 registerVoyageRoutes(app, { db });
 
 app.get('/healthz', async () => ({ ok: true }));
+
+// In production (or with OPENCYCLE_WEB_DIR) the server also serves the built
+// client, so one process on one port is the whole app: no Vite, no proxy.
+const webDir = resolveWebDir();
+if (webDir !== undefined) {
+  await registerWeb(app, webDir);
+  app.log.info({ webDir }, 'serving web client');
+} else {
+  app.log.info('web client build not found; API only (run `pnpm build` or set OPENCYCLE_WEB_DIR)');
+}
 
 app.addHook('onClose', async () => {
   stopImportWatcher();

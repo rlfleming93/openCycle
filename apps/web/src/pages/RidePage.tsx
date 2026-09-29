@@ -10,6 +10,7 @@ import LegToast from '../components/hud/LegToast.js';
 import RiderCard from '../components/hud/RiderCard.js';
 import RouteStrip from '../components/hud/RouteStrip.js';
 import StatusCluster from '../components/hud/StatusCluster.js';
+import WorkoutSidebar from '../components/hud/WorkoutSidebar.js';
 import { rawGameProgress } from '../game/director.js';
 import { useAppStore } from '../store.js';
 
@@ -22,10 +23,11 @@ const ERROR_BANNER_MS = 8000;
  * WS-fed zustand store.
  *
  * Space game on: the three.js canvas is the whole background (z-0) with a
- * light top-and-bottom scrim, and the DOM HUD layers above it — the flight
- * plan in the top ~14%, rider cards in the bottom ~28%, so the destination
- * stays clear in the upper-middle third. Off: the plain per-rider dashboard.
- * Both modes share the status cluster, the controls tray and the media panel.
+ * light top-and-bottom scrim, and the DOM HUD layers above it — the flight plan
+ * in the top ~11%, the workout sidebar down the left band, rider cards in the
+ * bottom ~28%, so the destination stays clear in the upper-middle third. Off:
+ * the plain per-rider dashboard. Both modes share the status cluster, the
+ * controls tray and the media panel.
  */
 export default function RidePage() {
   const session = useAppStore((s) => s.session);
@@ -104,6 +106,9 @@ export default function RidePage() {
 
       <RouteStrip />
       <DestinationMarker point={destinationPoint} destination={session.destination} pct={progress} />
+      {/* After the marker: the sidebar owns the left band, so its panel paints
+          over the destination ring wherever the two meet. */}
+      <WorkoutSidebar />
       <LegToast />
       <ArrivalCard />
 

@@ -5,7 +5,7 @@ import { hashSeed } from '@opencycle/shared';
 import { identityColor } from '../../lib/identity.js';
 import type { GameFrame, RiderVis } from '../director.js';
 import type { Engines, EngineSpec } from './engines.js';
-import { attitudeTargets, barrelRoll, flyToward, legFlight, stepAngle, weave } from './flight.js';
+import { attitudeTargets, barrelRoll, flyToward, legFlight, smootherstep, stepAngle, weave } from './flight.js';
 import type { AngleState, Attitude, LegFlight } from './flight.js';
 import { AMBIENT_GLSL, TANGENT_FRAME_GLSL } from './glsl.js';
 import { clamp, clamp01, damp, lerp, radians, smoothstep } from './math.js';
@@ -23,8 +23,10 @@ import type { SparkSpec, Sparks } from './sparks.js';
  * emissive (engine rims only — blended in as-is, so the glow stays local).
  *
  * Flight (world/flight.ts): every ship flies a seeded weave through flight
- * assist, faces its velocity and banks with its lateral acceleration; wingmen
- * overtake on burns. The throttle shows in the engines (idle orange-red, cruise
+ * assist along TRAVEL_DIR (the world's -Z), faces its velocity and banks with
+ * its lateral acceleration; wingmen overtake on burns. While a ship fires at
+ * the raider its nose tracks the raider's lead point, then eases back to its
+ * flight heading. The throttle shows in the engines (idle orange-red, cruise
  * blue-white, on-target burn white-hot with shock diamonds), RCS thrusters puff
  * whenever the attitude springs work hard, each burn opens with a boost and
  * burns trail faint ion contrails.
@@ -33,13 +35,15 @@ export const FLEET_HULLS = ['striker', 'challenger', 'zenith', 'insurgent'] as c
 
 /**
  * Formation slots in world units for a 9-unit hull: lead, starboard, port,
- * high-and-behind. Index = lane.
+ * starboard outer. Index = lane. A finger-four spread across the travel axis:
+ * the chase camera rides behind, so height and distance ahead stack hulls up
+ * the frame while the spread to either side keeps them apart.
  */
 export const FORMATION_SLOTS: ReadonlyArray<readonly [number, number, number]> = [
   [0, 0, 0],
-  [9, 2.6, -8],
-  [-7, 4.5, -12],
-  [8, 5.5, -20],
+  [8, 1.2, -5],
+  [-8, 1.6, -7],
+  [15, 2.2, -11],
 ];
 
 /** Guard sputter + over-target plume colour. */
@@ -82,6 +86,19 @@ const TRAIL_SPEED = 9;
 const RCS_ROLL_ACCEL = 4;
 const RCS_YAW_ACCEL = 1.1;
 const RCS_REFIRE_S = 0.1;
+/**
+ * Guns: an engaging ship swings its nose onto the raider's lead point in
+ * ENGAGE_IN_S and eases back to its flight heading over ENGAGE_OUT_S once it
+ * stops firing (both through the attitude springs). The look stays within
+ * LOOK_YAW / LOOK_PITCH of the travel axis; past that the ship turns its flight
+ * path toward the raider (PATH_TURN u per radian over, at most PATH_MAX u).
+ */
+const ENGAGE_IN_S = 0.5;
+const ENGAGE_OUT_S = 1.2;
+const LOOK_YAW = radians(35);
+const LOOK_PITCH = radians(20);
+const PATH_TURN = 30;
+const PATH_MAX = 12;
 
 /** Throttle colours, linear HDR: idle, cruise, on-target burn. */
 const IDLE_CORE = new THREE.Color(1.0, 0.42, 0.16).multiplyScalar(1.3);
@@ -262,6 +279,13 @@ interface ShipVis {
   yaw: AngleState;
   pitch: AngleState;
   roll: AngleState;
+  /** Flight heading target (velocity yaw): what the camera follows, never the guns. */
+  flightYaw: number;
+  /** Guns: firing at the raider this frame, 0..1 swing weight, and the nose angles on its lead point. */
+  engaging: boolean;
+  engage: number;
+  lookYaw: number;
+  lookPitch: number;
   rollStartMs: number;
   rollDir: number;
   overtakeMs: number;
@@ -290,6 +314,14 @@ export interface ScreenDisc {
   y: number;
   r: number;
   on: boolean;
+}
+
+/** What the guns fire at (the raider): `on` while in-band ships may fire; bolts fly at `speed`, so the aim leads by `velocity`. */
+export interface GunTarget {
+  on: boolean;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  speed: number;
 }
 
 /** Framing bounds of one visible ship (the camera's keep-out guard, the raider's reticle). */
@@ -555,6 +587,7 @@ export class Fleet {
    * Drive the fleet from the director's frame. Ships chase a moving target
    * (slot + formation weave + own weave) through flight assist, face their
    * velocity and bank into their turns; wingmen rotate slots while burning.
+   * In-band ships track `gun` (the raider) while it can be fired on.
    */
   update(
     frame: GameFrame,
@@ -564,6 +597,7 @@ export class Fleet {
     rung: number,
     camera: THREE.PerspectiveCamera,
     reticle: ScreenDisc,
+    gun: GunTarget,
   ): void {
     this.syncRiders(frame, nowMs);
     this.updateLeg(frame, nowMs);
@@ -586,7 +620,7 @@ export class Fleet {
     // Aim every ship, part them on screen, then fly them.
     for (const ship of this.ships.values()) {
       const vis = frame.riders.find((r) => r.riderId === ship.riderId);
-      if (vis !== undefined) this.aimShip(ship, vis, nowMs);
+      if (vis !== undefined) this.aimShip(ship, vis, nowMs, gun);
     }
     this.separate(camera, reticle);
     for (const ship of this.ships.values()) {
@@ -663,7 +697,10 @@ export class Fleet {
     return n === 0 ? null : out.multiplyScalar(1 / n);
   }
 
-  /** Mean yaw and roll of the riding ships (the chase camera lags these). */
+  /**
+   * Mean flight heading (yaw), pitch and roll of the riding ships: the chase
+   * camera lags these. Guns tracking the raider stay out of the yaw.
+   */
   fleetAttitude(out: Attitude): Attitude {
     out.yaw = 0;
     out.pitch = 0;
@@ -671,7 +708,7 @@ export class Fleet {
     let n = 0;
     for (const ship of this.ships.values()) {
       if (!ship.root.visible || ship.stoppedMs >= 0) continue;
-      out.yaw += ship.yaw.angle;
+      out.yaw += ship.flightYaw;
       out.pitch += ship.pitch.angle;
       out.roll += ship.roll.angle;
       n += 1;
@@ -772,6 +809,11 @@ export class Fleet {
       yaw: { angle: 0, rate: 0 },
       pitch: { angle: 0, rate: 0 },
       roll: { angle: 0, rate: 0 },
+      flightYaw: 0,
+      engaging: false,
+      engage: 0,
+      lookYaw: 0,
+      lookPitch: 0,
       rollStartMs: -1,
       rollDir: 1,
       overtakeMs: -1,
@@ -803,9 +845,11 @@ export class Fleet {
   /**
    * The ship's target: slot + formation weave + its own line + overtake arc.
    * An overtake first lifts the ship clear (see OVERTAKE_CLIMB), eases it
-   * across to its new slot while clear, then settles it.
+   * across to its new slot while clear, then settles it. An in-band ship
+   * engaging the raider takes the nose angles onto its lead point; past the
+   * look limits its flight path turns toward it too.
    */
-  private aimShip(ship: ShipVis, vis: RiderVis, nowMs: number): void {
+  private aimShip(ship: ShipVis, vis: RiderVis, nowMs: number, gun: GunTarget): void {
     if (ship.state !== vis.state) {
       if (vis.state === 'stopped' && ship.stoppedMs < 0) ship.stoppedMs = nowMs;
       if (vis.state === 'riding') ship.stoppedMs = -1;
@@ -840,6 +884,20 @@ export class Fleet {
     if (paused) ship.target.z += 7;
     const boostT = ship.boostMs < 0 ? 1 : (nowMs - ship.boostMs) / 1000;
     if (boostT < 1.6) ship.target.z -= 3.2 * Math.sin(Math.PI * clamp01(boostT / 1.6));
+
+    ship.engaging = gun.on && vis.inBand && vis.state === 'riding' && ship.stoppedMs < 0 && ship.root.visible;
+    if (!ship.engaging) return;
+    const lead = tmpA
+      .copy(gun.position)
+      .addScaledVector(gun.velocity, ship.pos.distanceTo(gun.position) / gun.speed)
+      .sub(ship.pos);
+    // Nose on -Z: +yaw swings it to port, +pitch lifts it (attitudeTargets).
+    const yaw = Math.atan2(-lead.x, -lead.z);
+    const pitch = Math.atan2(lead.y, Math.hypot(lead.x, lead.z));
+    ship.lookYaw = clamp(yaw, -LOOK_YAW, LOOK_YAW);
+    ship.lookPitch = clamp(pitch, -LOOK_PITCH, LOOK_PITCH);
+    ship.target.x -= clamp((yaw - ship.lookYaw) * PATH_TURN, -PATH_MAX, PATH_MAX);
+    ship.target.y += clamp((pitch - ship.lookPitch) * PATH_TURN, -PATH_MAX, PATH_MAX);
   }
 
   /**
@@ -984,8 +1042,13 @@ export class Fleet {
 
     flyToward(ship.pos, ship.vel, ship.acc, ship.target, ASSIST_OMEGA, ASSIST_ZETA, own.accel, dtS);
     attitudeTargets(ship.vel, ship.acc, own.bank, this.attitude);
-    const aYaw = stepAngle(ship.yaw, this.attitude.yaw, 5, 0.8, 5, dtS);
-    stepAngle(ship.pitch, this.attitude.pitch, 5, 0.8, 5, dtS);
+    ship.flightYaw = this.attitude.yaw;
+    // Guns: swing onto the raider's lead point while firing, ease back to the
+    // flight heading after; the weave keeps moving and banking the hull.
+    ship.engage = clamp01(ship.engage + (ship.engaging ? dtS / ENGAGE_IN_S : -dtS / ENGAGE_OUT_S));
+    const look = smootherstep(ship.engage);
+    const aYaw = stepAngle(ship.yaw, lerp(this.attitude.yaw, ship.lookYaw, look), 5, 0.8, 5, dtS);
+    stepAngle(ship.pitch, lerp(this.attitude.pitch, ship.lookPitch, look), 5, 0.8, 5, dtS);
     const aRoll = stepAngle(ship.roll, this.attitude.roll, 6.5, 0.55, 12, dtS);
 
     // Barrel roll: a full roll around a helix, on top of flight assist. Its

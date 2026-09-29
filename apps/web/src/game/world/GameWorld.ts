@@ -7,6 +7,7 @@ import { CameraRig } from './cameraRig.js';
 import { Engines } from './engines.js';
 import { Destination } from './planets.js';
 import { Field } from './field.js';
+import { Flybys } from './flybys.js';
 import { Fleet } from './fleet.js';
 import type { Attitude } from './flight.js';
 import { Fsd } from './fsd.js';
@@ -54,6 +55,7 @@ export class GameWorld {
   private readonly sparks = new Sparks();
   private readonly fleet = new Fleet(this.engines, this.sparks);
   private readonly field = new Field();
+  private readonly flybys = new Flybys();
   private readonly route = new Route();
   private readonly fx = new Fx();
   private readonly raiders = new Raiders(this.engines, this.sparks);
@@ -77,6 +79,7 @@ export class GameWorld {
     this.scene.add(
       this.sky.group,
       this.destination.group,
+      this.flybys.group,
       this.fleet.group,
       this.field.group,
       this.route.object,
@@ -106,9 +109,11 @@ export class GameWorld {
     this.anchor.setSeed(seed);
     this.sky.setSeed(seed);
     this.destination.setSeed(seed);
+    this.flybys.setSeed(seed);
     const lighting = this.anchor.lighting;
     this.destination.setLighting(lighting);
-    this.field.setLighting(lighting);
+    this.field.setLighting(lighting, this.anchor.coreRadius);
+    this.flybys.setLighting(lighting, this.anchor.coreRadius);
     this.sky.setViewport(env.viewportH, this.camera.aspect);
     // Effect sizes are authored in 1080p pixels; these two keep them stable
     // across the internal-resolution rungs and the live FOV.
@@ -148,13 +153,16 @@ export class GameWorld {
     this.fleet.setJump(this.fsd.charge, this.fsd.tunnel);
     this.sky.setReveal(this.fsd.reveal);
     this.destination.setReveal(this.fsd.reveal);
+    this.flybys.setReveal(this.fsd.reveal);
+    this.field.setReveal(this.fsd.reveal);
     this.lens.supercruise = this.fsd.supercruise;
 
     this.engines.begin();
     this.fleet.cameraPosition.copy(this.camera.position);
-    // Last frame's camera and reticle: the fleet parts its hulls on screen and
-    // keeps the wingmen off the raider's reticle.
-    this.fleet.update(frame, nowMs, dtS, lighting, env.rung, this.camera, this.raiders.reticleScreen);
+    // Last frame's camera, reticle and raider: the fleet parts its hulls on
+    // screen, keeps the wingmen off the raider's reticle and swings the
+    // in-band ships' guns onto the raider.
+    this.fleet.update(frame, nowMs, dtS, lighting, env.rung, this.camera, this.raiders.reticleScreen, this.raiders.gunTarget);
 
     // The route runs from the lead ship; the camera follows the fleet centre so
     // the ships' own weave reads against the sky.
@@ -174,7 +182,7 @@ export class GameWorld {
       this.fleet.fleetAttitude(this.attitude),
       this.fleet.bounds,
       this.hasDestination ? this.destination.center : null,
-      lighting.sunDir,
+      this.destination.radius(),
       this.fsd.jump,
       this.fsd.fovAdd,
     );
@@ -192,7 +200,30 @@ export class GameWorld {
     this.anchor.update(dtS);
     if (this.renderer !== null) this.sky.bake(this.renderer, dtS);
     this.field.group.visible = this.fsd.tunnel <= 0;
-    this.field.update(frame, nowMs, dtS, this.camera, frame.legKind, this.rig.orbiting, this.rig.cut);
+    this.field.update(
+      frame,
+      nowMs,
+      dtS,
+      this.camera,
+      this.fleet.bounds,
+      this.rig.setup === 'chase',
+      this.rig.orbiting,
+      this.rig.cut,
+      this.hasDestination ? this.destination.center : null,
+      this.destination.radius(),
+      env.viewportH,
+    );
+    // Passing bodies drift on the same travel, so their parallax matches the rocks.
+    this.flybys.update(
+      this.field.travel,
+      dtS,
+      this.camera,
+      frame.progress,
+      this.rig.arrivalT,
+      env.rung,
+      this.hasDestination ? this.destination.center : null,
+      this.destination.radius(),
+    );
 
     // The route is a cruise instrument: hidden until the jump reveals the
     // system, and once arrival starts the planet is the subject.
@@ -214,7 +245,16 @@ export class GameWorld {
         this.rig.kill(nowMs);
       }
     }
-    this.raiders.update(frame, nowMs, dtS, this.fleet, lighting, this.camera, this.hasDestination ? this.destination.center : null);
+    this.raiders.update(
+      frame,
+      nowMs,
+      dtS,
+      this.fleet,
+      lighting,
+      this.camera,
+      this.hasDestination ? this.destination.center : null,
+      this.destination.radius(),
+    );
     this.engines.end(nowMs * 0.001, screenScale);
     this.sparks.update(dtS, screenScale);
   }
@@ -248,6 +288,7 @@ export class GameWorld {
     this.destination.dispose();
     this.fleet.dispose();
     this.field.dispose();
+    this.flybys.dispose();
     this.route.dispose();
     this.fx.dispose();
     this.raiders.dispose();

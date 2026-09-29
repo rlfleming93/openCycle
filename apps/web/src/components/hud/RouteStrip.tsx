@@ -1,7 +1,5 @@
 import { useRef } from 'react';
 
-import type { Leg, LegKind } from '@opencycle/shared';
-
 import {
   LEG_ON_TARGET_DISPLAY_S,
   fmtClock,
@@ -16,28 +14,12 @@ import {
 import { useAppStore } from '../../store.js';
 
 /**
- * Top-center flight plan: the lead rider's legs proportional to duration, the
- * objective of the current leg, and the survey tally. Sits inside the top
- * ~14% of the viewport so the destination stays clear in the upper-middle
- * third. Without a destination it is the open-space readout instead.
+ * Top-center flight plan: the route header, the objective of the current leg
+ * and the survey tally. The leg-by-leg bar that used to live here is the
+ * workout sidebar's job now. Sits inside the top ~11% of the viewport so the
+ * destination stays clear in the upper-middle third. Without a destination it
+ * is the open-space readout instead.
  */
-
-/** Future-leg tint by kind: burn amber, climb light amber, cruise under-blue, rest slate. */
-const FUTURE_LEG_CLASS: Record<LegKind, string> = {
-  burn: 'border-over/30 bg-over/10 text-over/80',
-  climb: 'border-over/20 bg-over/5 text-over/70',
-  cruise: 'border-under/25 bg-under/10 text-under',
-  coast: 'border-line bg-ink/5 text-dim',
-  launch: 'border-line bg-ink/5 text-dim',
-  approach: 'border-line bg-ink/5 text-dim',
-  free: 'border-line bg-ink/5 text-dim',
-};
-
-function legClass(leg: Leg, isDone: boolean, isCurrent: boolean): string {
-  if (isCurrent) return 'border-2 border-over bg-over/20 text-ink';
-  if (isDone) return 'border border-on/35 bg-on/15 text-on';
-  return `border ${FUTURE_LEG_CLASS[leg.kind]}`;
-}
 
 export default function RouteStrip() {
   const session = useAppStore((state) => state.session);
@@ -71,14 +53,6 @@ export default function RouteStrip() {
   const currentIndex = lead.legIndex;
   const currentLeg = currentIndex === null ? undefined : legs[currentIndex];
   const remainingS = currentLeg === undefined ? null : legRemainingS(currentLeg, lead.workoutClockS);
-  // Clean surveys come from the received legCompleted events: a done leg shows
-  // its survey dot only when that leg locked one.
-  const cleanLegIndexes = new Set<number>();
-  for (const event of events) {
-    if (event.kind === 'legCompleted' && event.riderId === lead.riderId && event.objective && event.clean) {
-      cleanLegIndexes.add(event.legIndex);
-    }
-  }
   const total = objectiveLegCount(lead.legs);
   if (!arrivedRef.current && events.some((event) => event.kind === 'workoutCompleted' && event.riderId === lead.riderId)) {
     arrivedRef.current = true;
@@ -88,13 +62,6 @@ export default function RouteStrip() {
   // then it shows 'LOCK —' with an empty bar.
   const lockPct =
     lead.legTargetedS < LEG_ON_TARGET_DISPLAY_S ? null : legOnTargetPct(lead.legTargetedS, lead.legOnTargetS);
-  const fillPct =
-    currentLeg === undefined || currentLeg.endS <= currentLeg.startS || lead.workoutClockS === null
-      ? 0
-      : Math.min(
-          100,
-          Math.max(0, ((lead.workoutClockS - currentLeg.startS) / (currentLeg.endS - currentLeg.startS)) * 100),
-        );
 
   return (
     <aside
@@ -114,32 +81,7 @@ export default function RouteStrip() {
           </div>
         </div>
 
-        <div className="mt-[clamp(6px,0.52vw,16px)] flex gap-[clamp(2px,0.21vw,7px)]">
-          {legs.map((leg) => {
-            const isCurrent = leg.index === currentIndex;
-            const isDone = currentIndex === null ? true : leg.index < currentIndex;
-            return (
-              <div
-                key={leg.index}
-                style={{ flexGrow: Math.max(1, leg.endS - leg.startS), flexBasis: 0 }}
-                className={`relative flex h-[clamp(22px,1.77vw,52px)] items-center justify-center overflow-hidden rounded-[3px] font-display text-[clamp(11px,0.78vw,24px)] uppercase tracking-[0.06em] ${legClass(leg, isDone, isCurrent)}`}
-              >
-                {isCurrent && fillPct > 0 && (
-                  <div className="absolute inset-y-0 left-0 bg-over/35" style={{ width: `${fillPct}%` }} />
-                )}
-                <span className="relative truncate px-1">{leg.label}</span>
-                {cleanLegIndexes.has(leg.index) && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute right-[6%] top-[14%] h-[clamp(3px,0.31vw,9px)] w-[clamp(3px,0.31vw,9px)] rounded-full bg-on"
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-[clamp(6px,0.73vw,22px)] flex items-center justify-center gap-[clamp(10px,1.04vw,32px)] font-display uppercase tracking-[0.06em]">
+        <div className="mt-[clamp(4px,0.52vw,16px)] flex items-center justify-center gap-[clamp(10px,1.04vw,32px)] font-display uppercase tracking-[0.06em]">
           {currentLeg !== undefined && (
             <p className="truncate text-[clamp(15px,1.25vw,38px)] text-over">
               {currentLeg.label} — {legObjective(currentLeg)}
