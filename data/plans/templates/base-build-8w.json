@@ -1,0 +1,63 @@
+{
+  "id": "base-build-8w",
+  "name": "8-Week Base Builder",
+  "description": "Foundation block: two zone 2 endurance rides plus one tempo-to-sweet-spot quality ride per week (day 0 = plan start day; a Monday start makes day 0 Monday). Weekly volume ramps roughly 5% per week via longer endurance rides, with a recovery week 4.",
+  "weeks": [
+    {
+      "days": [
+        { "dow": 0, "workoutId": "endurance-z2-60" },
+        { "dow": 2, "workoutId": "tempo-2x20" },
+        { "dow": 5, "workoutId": "endurance-z2-60" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 0, "workoutId": "endurance-z2-90" },
+        { "dow": 2, "workoutId": "tempo-2x20" },
+        { "dow": 5, "workoutId": "endurance-z2-60" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 0, "workoutId": "endurance-z2-90" },
+        { "dow": 2, "workoutId": "sweetspot-3x12" },
+        { "dow": 5, "workoutId": "endurance-z2-90" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 0, "workoutId": "endurance-z2-60" },
+        { "dow": 2, "workoutId": "recovery-45" },
+        { "dow": 5, "workoutId": "endurance-z2-60" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 0, "workoutId": "endurance-z2-120" },
+        { "dow": 2, "workoutId": "sweetspot-3x12" },
+        { "dow": 5, "workoutId": "endurance-z2-90" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 0, "workoutId": "endurance-z2-120" },
+        { "dow": 2, "workoutId": "sweetspot-3x16" },
+        { "dow": 5, "workoutId": "endurance-z2-120" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 0, "workoutId": "endurance-z2-180" },
+        { "dow": 2, "workoutId": "sweetspot-3x16" },
+        { "dow": 5, "workoutId": "endurance-z2-120" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 0, "workoutId": "endurance-z2-180" },
+        { "dow": 2, "workoutId": "sweetspot-3x20" },
+        { "dow": 5, "workoutId": "endurance-z2-180" }
+      ]
+    }
+  ]
+}

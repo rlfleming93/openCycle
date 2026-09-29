@@ -1,0 +1,11 @@
+{
+  "id": "vo2max-5x3",
+  "name": "VO2max 5x3",
+  "description": "Five 3-minute VO2max repeats at 118% FTP with 3-minute recoveries — maximal aerobic power stimulus (Coggan level 5).",
+  "tags": ["vo2max"],
+  "steps": [
+    { "kind": "ramp", "seconds": 900, "fromPctFtp": 0.5, "toPctFtp": 0.9 },
+    { "kind": "interval", "repeats": 5, "on": { "seconds": 180, "targetPctFtp": 1.18 }, "off": { "seconds": 180, "targetPctFtp": 0.55 } },
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.9, "toPctFtp": 0.4 }
+  ]
+}

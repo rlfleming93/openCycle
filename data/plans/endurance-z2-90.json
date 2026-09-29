@@ -1,0 +1,11 @@
+{
+  "id": "endurance-z2-90",
+  "name": "Endurance Z2 90 min",
+  "description": "Zone 2 endurance ride at 68% FTP with a short warmup and cooldown ramp — aerobic base and fat-oxidation stimulus (Coggan level 2; Seiler's polarized-training evidence).",
+  "tags": ["endurance", "zone-2"],
+  "steps": [
+    { "kind": "ramp", "seconds": 300, "fromPctFtp": 0.5, "toPctFtp": 0.68 },
+    { "kind": "steady", "seconds": 4800, "targetPctFtp": 0.68 },
+    { "kind": "ramp", "seconds": 300, "fromPctFtp": 0.68, "toPctFtp": 0.4 }
+  ]
+}

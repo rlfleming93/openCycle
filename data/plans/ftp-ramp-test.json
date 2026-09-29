@@ -1,0 +1,10 @@
+{
+  "id": "ftp-ramp-test",
+  "name": "FTP Ramp Test",
+  "description": "Ramp test: 5 minutes at 50% FTP, then a continuous ramp from 50% to 250% over 25 minutes. Ride until you can no longer hold the step — when you stop pedaling the ERG guard drops the resistance, and your best 60 s is already recorded. Estimated FTP = 0.75 x your best 60-second power (ramp-test protocol).",
+  "tags": ["test", "ftp"],
+  "steps": [
+    { "kind": "steady", "seconds": 300, "targetPctFtp": 0.5 },
+    { "kind": "ramp", "seconds": 1500, "fromPctFtp": 0.5, "toPctFtp": 2.5 }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "id": "sweetspot-3x20",
+  "name": "Sweet Spot 3x20",
+  "description": "Three 20-minute sweet-spot intervals at 90% FTP with 5-minute recoveries — the full sweet-spot progression (Coggan level 4 lower band).",
+  "tags": ["sweetspot"],
+  "steps": [
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.5, "toPctFtp": 0.9 },
+    { "kind": "interval", "repeats": 3, "on": { "seconds": 1200, "targetPctFtp": 0.9 }, "off": { "seconds": 300, "targetPctFtp": 0.6 } },
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.9, "toPctFtp": 0.4 }
+  ]
+}

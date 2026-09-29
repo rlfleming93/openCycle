@@ -1,0 +1,48 @@
+{
+  "id": "vo2-block-6w",
+  "name": "6-Week VO2max Block",
+  "description": "VO2max block: two quality rides per week (alternating 5x3 and 4x4 repeats) plus one zone 2 endurance ride (day 0 = plan start day; a Monday start makes day 0 Monday). Week 4 backs off to a single quality ride for recovery.",
+  "weeks": [
+    {
+      "days": [
+        { "dow": 1, "workoutId": "vo2max-5x3" },
+        { "dow": 3, "workoutId": "vo2max-4x4" },
+        { "dow": 5, "workoutId": "endurance-z2-60" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 1, "workoutId": "vo2max-4x4" },
+        { "dow": 3, "workoutId": "vo2max-5x3" },
+        { "dow": 5, "workoutId": "endurance-z2-90" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 1, "workoutId": "vo2max-5x3" },
+        { "dow": 3, "workoutId": "vo2max-4x4" },
+        { "dow": 5, "workoutId": "endurance-z2-90" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 1, "workoutId": "vo2max-5x3" },
+        { "dow": 5, "workoutId": "endurance-z2-60" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 1, "workoutId": "vo2max-4x4" },
+        { "dow": 3, "workoutId": "vo2max-5x3" },
+        { "dow": 5, "workoutId": "endurance-z2-120" }
+      ]
+    },
+    {
+      "days": [
+        { "dow": 1, "workoutId": "vo2max-5x3" },
+        { "dow": 3, "workoutId": "vo2max-4x4" },
+        { "dow": 5, "workoutId": "endurance-z2-120" }
+      ]
+    }
+  ]
+}

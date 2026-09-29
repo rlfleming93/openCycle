@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<workout_file>
+  <author>openCycle</author>
+  <name>Interleaved</name>
+  <description>Interleaved element types must keep document order</description>
+  <sportType>bike</sportType>
+  <tags>
+    <tag name="INTERVALS"/>
+  </tags>
+  <workout>
+    <Warmup Duration="300" PowerLow="0.4" PowerHigh="0.75"/>
+    <SteadyState Duration="300" Power="0.8"/>
+    <IntervalsT Repeat="2" OnDuration="60" OffDuration="60" OnPower="1.0" OffPower="0.5"/>
+    <SteadyState Duration="300" Power="0.7"/>
+    <Cooldown Duration="300" PowerLow="0.7" PowerHigh="0.4"/>
+  </workout>
+</workout_file>

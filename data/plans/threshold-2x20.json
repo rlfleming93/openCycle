@@ -1,0 +1,11 @@
+{
+  "id": "threshold-2x20",
+  "name": "Threshold 2x20",
+  "description": "Classic 2x20 threshold ride at 97% FTP with 10-minute recoveries — the backbone of functional threshold power growth (Coggan level 4).",
+  "tags": ["threshold"],
+  "steps": [
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.5, "toPctFtp": 0.97 },
+    { "kind": "interval", "repeats": 2, "on": { "seconds": 1200, "targetPctFtp": 0.97 }, "off": { "seconds": 600, "targetPctFtp": 0.55 } },
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.97, "toPctFtp": 0.4 }
+  ]
+}

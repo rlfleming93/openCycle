@@ -1,0 +1,11 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+
+allowBuilds:
+  esbuild: true
+  '@stoprocent/noble': true
+  better-sqlite3: true
+  '@serialport/bindings-cpp': true
+  '@stoprocent/bluetooth-hci-socket': true
+  usb: true

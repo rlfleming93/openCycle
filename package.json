@@ -1,0 +1,31 @@
+{
+  "name": "opencycle",
+  "version": "0.0.1",
+  "description": "Open-source indoor cycling: Wahoo KICKR ERG control over Bluetooth, multi-rider sessions, FIT recording and a space voyage game",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rlfleming93/openCycle.git"
+  },
+  "homepage": "https://opencycle.pages.dev",
+  "keywords": ["indoor-cycling", "kickr", "ftms", "erg", "bluetooth", "fit", "workouts", "threejs"],
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "tsc -b packages/shared apps/server apps/web apps/web/tsconfig.node.json",
+    "test": "vitest run",
+    "dev": "concurrently -n server,web -c blue,green \"pnpm --filter @opencycle/server dev\" \"pnpm --filter @opencycle/web dev\"",
+    "dev:server": "pnpm --filter @opencycle/server dev",
+    "garmin:login": "pnpm --filter @opencycle/server exec tsx scripts/garmin-login.ts",
+    "workout:validate": "pnpm --filter @opencycle/server exec tsx scripts/workout-validate.ts"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.0.0"
+  }
+}

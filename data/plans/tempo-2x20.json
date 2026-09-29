@@ -1,0 +1,11 @@
+{
+  "id": "tempo-2x20",
+  "name": "Tempo 2x20",
+  "description": "Classic 2x20 tempo ride at 80% FTP with 5-minute recoveries — muscular endurance and lactate-clearance capacity (Coggan level 3).",
+  "tags": ["tempo"],
+  "steps": [
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.5, "toPctFtp": 0.8 },
+    { "kind": "interval", "repeats": 2, "on": { "seconds": 1200, "targetPctFtp": 0.8 }, "off": { "seconds": 300, "targetPctFtp": 0.55 } },
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.8, "toPctFtp": 0.4 }
+  ]
+}

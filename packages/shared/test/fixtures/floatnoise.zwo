@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<workout_file>
+  <author>openCycle</author>
+  <name>Float Noise</name>
+  <description>Durations carry float noise from the Zwift editor</description>
+  <sportType>bike</sportType>
+  <workout>
+    <Warmup Duration="599.99997" PowerLow="0.30000001" PowerHigh="0.75"/>
+    <SteadyState Duration="180.00002" Power="0.89999998"/>
+  </workout>
+</workout_file>

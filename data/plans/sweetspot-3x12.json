@@ -1,0 +1,11 @@
+{
+  "id": "sweetspot-3x12",
+  "name": "Sweet Spot 3x12",
+  "description": "Three 12-minute sweet-spot intervals at 90% FTP with 5-minute recoveries — high training load per minute with tolerable fatigue (Coggan level 4 lower band).",
+  "tags": ["sweetspot"],
+  "steps": [
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.5, "toPctFtp": 0.9 },
+    { "kind": "interval", "repeats": 3, "on": { "seconds": 720, "targetPctFtp": 0.9 }, "off": { "seconds": 300, "targetPctFtp": 0.6 } },
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.9, "toPctFtp": 0.4 }
+  ]
+}

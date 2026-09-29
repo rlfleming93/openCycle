@@ -1,0 +1,13 @@
+{
+  "id": "ftp-20min-test",
+  "name": "FTP 20 min Test",
+  "description": "Classic 20-minute FTP test: ramped warmup, then a self-paced maximal 20-minute effort (free ride — pace yourself at the hardest level you could just sustain). Estimated FTP = 0.95 x your 20-minute average power (classic 20-minute test protocol).",
+  "tags": ["test", "ftp"],
+  "steps": [
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.5, "toPctFtp": 0.75 },
+    { "kind": "steady", "seconds": 300, "targetPctFtp": 0.75 },
+    { "kind": "ramp", "seconds": 120, "fromPctFtp": 0.75, "toPctFtp": 0.95 },
+    { "kind": "free", "seconds": 1200 },
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.95, "toPctFtp": 0.4 }
+  ]
+}

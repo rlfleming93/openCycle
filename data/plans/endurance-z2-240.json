@@ -1,0 +1,11 @@
+{
+  "id": "endurance-z2-240",
+  "name": "Endurance Z2 240 min",
+  "description": "Zone 2 endurance ride at 75% FTP with a short warmup and cooldown ramp — the long aerobic base session (Coggan level 2; Seiler's polarized-training evidence).",
+  "tags": ["endurance", "zone-2"],
+  "steps": [
+    { "kind": "ramp", "seconds": 300, "fromPctFtp": 0.5, "toPctFtp": 0.75 },
+    { "kind": "steady", "seconds": 13800, "targetPctFtp": 0.75 },
+    { "kind": "ramp", "seconds": 300, "fromPctFtp": 0.75, "toPctFtp": 0.4 }
+  ]
+}

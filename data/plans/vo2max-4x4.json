@@ -1,0 +1,11 @@
+{
+  "id": "vo2max-4x4",
+  "name": "VO2max 4x4",
+  "description": "Four 4-minute VO2max repeats at 115% FTP with 3-minute recoveries — the Norwegian 4x4 method for maximal aerobic power (Coggan level 5).",
+  "tags": ["vo2max"],
+  "steps": [
+    { "kind": "ramp", "seconds": 900, "fromPctFtp": 0.5, "toPctFtp": 0.9 },
+    { "kind": "interval", "repeats": 4, "on": { "seconds": 240, "targetPctFtp": 1.15 }, "off": { "seconds": 180, "targetPctFtp": 0.55 } },
+    { "kind": "ramp", "seconds": 600, "fromPctFtp": 0.9, "toPctFtp": 0.4 }
+  ]
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<workout_file>
+  <author>openCycle</author>
+  <name>Free Ride</name>
+  <description>Just ride</description>
+  <sportType>bike</sportType>
+  <workout>
+    <FreeRide Duration="1200"/>
+  </workout>
+</workout_file>

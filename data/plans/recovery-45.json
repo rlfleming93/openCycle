@@ -1,0 +1,11 @@
+{
+  "id": "recovery-45",
+  "name": "Recovery 45",
+  "description": "Recovery spin at 55% FTP — promote blood flow and flush fatigue without meaningful training load (Coggan level 1).",
+  "tags": ["recovery"],
+  "steps": [
+    { "kind": "ramp", "seconds": 300, "fromPctFtp": 0.4, "toPctFtp": 0.55 },
+    { "kind": "steady", "seconds": 2100, "targetPctFtp": 0.55 },
+    { "kind": "ramp", "seconds": 300, "fromPctFtp": 0.55, "toPctFtp": 0.35 }
+  ]
+}

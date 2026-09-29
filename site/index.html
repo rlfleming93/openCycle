@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openCycle — KICKR ERG control, FIT files and a space voyage</title>
+<meta name="description" content="Open-source indoor cycling for a home trainer: Bluetooth FTMS ERG control, several riders on one machine, a FIT file for every ride, training plans and Garmin sync, with a space voyage flown by your workout.">
+<link rel="canonical" href="https://opencycle.pages.dev/">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#02040a">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/barlow-condensed-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="openCycle">
+<meta property="og:url" content="https://opencycle.pages.dev/">
+<meta property="og:title" content="openCycle — KICKR ERG control, FIT files and a space voyage">
+<meta property="og:description" content="Open-source indoor cycling: hold a Wahoo KICKR at the target watts over Bluetooth ERG, ride with several people on one machine, record a FIT file every session, and fly a fleet of ships to a new star system while you pedal.">
+<meta property="og:image" content="https://opencycle.pages.dev/og.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The openCycle ride screen: ships flying toward a planet, with the route strip across the top and rider cards at the bottom.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="openCycle — KICKR ERG control, FIT files and a space voyage">
+<meta name="twitter:description" content="Open-source indoor cycling: Bluetooth ERG control, FIT files, Garmin sync, and a space voyage flown by your workout.">
+<meta name="twitter:image" content="https://opencycle.pages.dev/og.jpg">
+<meta name="twitter:image:alt" content="The openCycle ride screen: ships flying toward a planet, with the route strip across the top and rider cards at the bottom.">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="bar__in">
+    <a class="mark" href="#main">
+      <svg class="mark__glyph" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <circle cx="32" cy="32" r="13" fill="none" stroke="currentColor" stroke-width="5"></circle>
+        <g transform="rotate(-24 32 32)">
+          <ellipse cx="32" cy="32" rx="28" ry="11" fill="none" stroke="currentColor" stroke-width="3.5" opacity="0.45"></ellipse>
+          <circle cx="58" cy="32" r="4.5" fill="currentColor"></circle>
+        </g>
+      </svg>
+      <span class="mark__word">openCycle</span>
+    </a>
+    <nav class="bar__nav" aria-label="Sections">
+      <a href="#what">What it does</a>
+      <a href="#voyage">The voyage</a>
+      <a href="#hardware">Hardware</a>
+      <a href="#run">Run it</a>
+    </nav>
+    <a class="bar__gh" href="https://github.com/rlfleming93/openCycle">
+      GitHub
+      <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M2.5 9.5 9.5 2.5M4.6 2.5h4.9v4.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </a>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero">
+    <div class="hero__media">
+      <video class="hero__loop" data-motion autoplay muted loop playsinline preload="auto" poster="media/poster.webp" aria-hidden="true" tabindex="-1">
+        <source src="media/loop.mp4" type="video/mp4">
+      </video>
+      <img class="hero__still" src="media/poster.webp" width="1920" height="1080" alt="The openCycle ride screen: ships flying toward a planet, with the route strip across the top and rider cards at the bottom.">
+      <div class="hero__scrim" aria-hidden="true"></div>
+      <p class="hero__tag">Recorded on the built-in simulator</p>
+    </div>
+    <div class="hero__body">
+      <h1>The workout is the flight plan.</h1>
+      <p class="hero__sub">openCycle holds your KICKR at the watts the workout asks for, records every ride as a FIT file, and flies a fleet of ships to a new star system while you pedal.</p>
+      <p class="hero__cta">
+        <a class="btn btn--solid" href="https://github.com/rlfleming93/openCycle">
+          View on GitHub
+          <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M2.5 9.5 9.5 2.5M4.6 2.5h4.9v4.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </a>
+        <a class="btn btn--line" href="#run">Run it</a>
+      </p>
+      <p class="hero__facts">MIT licensed · macOS and Node 24 · tested with a Wahoo KICKR CORE over Bluetooth FTMS ERG</p>
+    </div>
+  </section>
+
+  <section class="sec" id="what">
+    <div class="wrap">
+      <div class="head">
+        <h2>A trainer controller, a recorder, and a game.</h2>
+        <p class="lead">One app covers the indoor season: the trainer, the workout, the file that lands in Garmin, and the flight you watch while you ride it.</p>
+      </div>
+      <div class="split">
+        <figure class="shot">
+          <img src="media/still-burn.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="A burn leg in progress: the route strip reads BURN 1/4, and the rider card shows the target watts, cadence and heart rate.">
+          <figcaption>A burn leg at 115% FTP. The route strip counts the legs; the rider card counts the watts.</figcaption>
+        </figure>
+        <dl class="spec">
+          <div>
+            <dt>ERG control</dt>
+            <dd>Your trainer gets the target over Bluetooth FTMS ERG and holds it there. You pedal, and the resistance follows the workout step by step.</dd>
+          </div>
+          <div>
+            <dt>Several riders, one machine</dt>
+            <dd>Two or more riders can ride a session on the same computer, each with their own trainer, heart rate strap, targets and FIT file.</dd>
+          </div>
+          <div>
+            <dt>A FIT file for every ride</dt>
+            <dd>Every session is recorded as a standard FIT file. Download it from History, or let it upload to Garmin Connect.</dd>
+          </div>
+          <div>
+            <dt>Workouts and plans</dt>
+            <dd>Curated workouts and multi-week plan templates ship with the repo as JSON. Write your own, then check the whole library with one command.</dd>
+          </div>
+          <div>
+            <dt>Garmin import and upload</dt>
+            <dd>Drop a Garmin account export into the import folder to bring old rides back in. Turn on auto-upload in a profile, save a Garmin login once, and finished rides upload to Garmin Connect.</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="voyage">
+    <div class="wrap">
+      <div class="head">
+        <h2>Every workout is a flight to a new system.</h2>
+        <p class="lead">The ride screen is a voyage flown by the workout you are doing. The trainer, the targets and the FIT file stay the source of truth: the game only reads them.</p>
+      </div>
+
+      <figure class="route">
+        <ol class="route__legs" aria-label="VO2max 4x4, eleven legs">
+          <li class="leg" data-kind="launch" style="flex-grow:450"><span class="leg__label">Launch</span><span class="sr">launch, 450 seconds</span></li>
+          <li class="leg" data-kind="launch" style="flex-grow:450"><span class="leg__label">Launch</span><span class="sr">launch, 450 seconds</span></li>
+          <li class="leg" data-kind="burn" data-objective style="flex-grow:240"><span class="leg__label">Burn 1/4</span><span class="sr">burn 1 of 4, 240 seconds, one survey</span></li>
+          <li class="leg" data-kind="coast" style="flex-grow:180"><span class="leg__label">Coast</span><span class="sr">coast, 180 seconds</span></li>
+          <li class="leg" data-kind="burn" data-objective style="flex-grow:240"><span class="leg__label">Burn 2/4</span><span class="sr">burn 2 of 4, 240 seconds, one survey</span></li>
+          <li class="leg" data-kind="coast" style="flex-grow:180"><span class="leg__label">Coast</span><span class="sr">coast, 180 seconds</span></li>
+          <li class="leg" data-kind="burn" data-objective style="flex-grow:240"><span class="leg__label">Burn 3/4</span><span class="sr">burn 3 of 4, 240 seconds, one survey</span></li>
+          <li class="leg" data-kind="coast" style="flex-grow:180"><span class="leg__label">Coast</span><span class="sr">coast, 180 seconds</span></li>
+          <li class="leg" data-kind="burn" data-objective style="flex-grow:240"><span class="leg__label">Burn 4/4</span><span class="sr">burn 4 of 4, 240 seconds, one survey</span></li>
+          <li class="leg" data-kind="coast" style="flex-grow:180"><span class="leg__label">Coast</span><span class="sr">coast, 180 seconds</span></li>
+          <li class="leg" data-kind="approach" style="flex-grow:600"><span class="leg__label">Approach</span><span class="sr">approach, 600 seconds</span></li>
+        </ol>
+        <p class="route__key"><span class="route__dot" aria-hidden="true"></span> A lit dot marks an objective leg: one survey chance. Cruise, climb and burn legs all count.</p>
+        <figcaption>VO2max 4x4 in eleven legs: 53 minutes, two launches, four burns, four coasts and an approach. Finish the workout and you arrive.</figcaption>
+      </figure>
+
+      <div class="voyage">
+        <div class="rules">
+          <h3>The mission clock</h3>
+          <p>You arrive by finishing the workout. How hard you push changes what you find there, never whether you get there.</p>
+          <h3>Surveys</h3>
+          <p>Every cruise, climb and burn leg is one survey chance. Hold within 10% of the target for 85% of the leg, after a five-second settle once the leg starts, and the survey locks: a probe flies to the planet, and on arrival it lights a ring, a moon or a station. Going over target never counts.</p>
+          <h3>Your star map</h3>
+          <p>Each rider keeps a voyage: every system they have reached, with the surveys they locked, on a page of its own. The next destination is worked out in advance, so a planned workout already has a name.</p>
+          <h3>Riding together</h3>
+          <p>With two or more riders, everyone flies to the lead rider's destination in formation. Hold your zones together and a tether links the ships. When one rider's cadence drops away, another can cover: fifteen seconds at 10% over their own target, and a shield goes up around the struggling ship in the helper's color.</p>
+        </div>
+        <div class="voyage__stills">
+          <figure class="shot">
+            <img src="media/still-duo.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="Two ships in formation with a light tether between them and a beacon flare ahead on the route.">
+            <figcaption>Two riders holding their zones: the tether lights up and the beacon fires.</figcaption>
+          </figure>
+          <figure class="shot">
+            <img src="media/still-voyage.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="The Voyage page: systems laid out along a winding path, each with its date, workout and survey marks.">
+            <figcaption>The Voyage page: every system a rider has reached, with the surveys they locked.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </div>
+
+    <figure class="bleed">
+      <img src="media/still-arrival.webp" width="1920" height="1080" loading="lazy" decoding="async" alt="Arrival at the destination: the fleet in orbit and the surveyed features lit around the planet.">
+      <figcaption><span class="wrap">Arrival. Each survey you locked lights one feature of the new system; the ones you missed stay as faint outlines.</span></figcaption>
+    </figure>
+  </section>
+
+  <section class="sec" id="hardware">
+    <div class="wrap">
+      <div class="head">
+        <h2>Hardware</h2>
+        <p class="lead">The server runs on the computer next to the bike and talks to the trainer over Bluetooth. There is no account and nothing to sign up for.</p>
+      </div>
+      <dl class="spec spec--tight">
+        <div>
+          <dt>Trainer</dt>
+          <dd>Tested with the Wahoo KICKR CORE over Bluetooth FTMS ERG control. Other FTMS trainers may work, but they are untested.</dd>
+        </div>
+        <div>
+          <dt>Heart rate</dt>
+          <dd>Any Bluetooth strap that uses the standard Heart Rate Service.</dd>
+        </div>
+        <div>
+          <dt>Computer</dt>
+          <dd>macOS and Node 24. The Bluetooth stack is a native addon, so the server runs on Node and not on Bun.</dd>
+        </div>
+        <div>
+          <dt>Your data</dt>
+          <dd>Rides and profiles live in a folder you choose: <code>~/.opencycle</code> by default, or <code>OPENCYCLE_DATA_DIR</code>.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="sec" id="run">
+    <div class="wrap">
+      <div class="head">
+        <h2>Run it</h2>
+        <p class="lead">You do not need a trainer to try it. The simulator adds fake trainers and heart rate straps, so a session is one command away.</p>
+      </div>
+
+      <div class="cmd">
+        <div class="cmd__bar">
+          <span class="cmd__label">Shell</span>
+          <button class="cmd__copy" type="button" data-copy>Copy commands</button>
+        </div>
+        <pre id="commands"><code>git clone https://github.com/rlfleming93/openCycle.git
+cd openCycle
+pnpm install
+OPENCYCLE_SIM=2x2 OPENCYCLE_DATA_DIR=/tmp/opencycle-demo pnpm dev</code></pre>
+      </div>
+
+      <p class="prose">Open <a href="http://localhost:5173">http://localhost:5173</a>, create a profile, then start a session from the session builder. <code>2x2</code> means two simulated trainers and two simulated straps, and <code>OPENCYCLE_DATA_DIR</code> keeps the demo database and FIT files out of your real data folder. Requires Node 24 and pnpm 10.26 or later.</p>
+      <p class="prose">With a real trainer, set <code>OPENCYCLE_BLE=1</code>. On macOS, Bluetooth is denied to SSH and headless processes, so the README wraps the server in a small app bundle that gives it a stable identity once you approve it.</p>
+
+      <figure class="shot shot--wide">
+        <video data-walkthrough controls playsinline preload="none" poster="media/poster.webp" width="1920" height="1080">
+          <source src="media/ride.mp4" type="video/mp4">
+        </video>
+        <figcaption>A recorded simulator session, 40 seconds: launch, a clean burn with a survey probe, the co-op tether, and arrival.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="notice" id="secure">
+    <div class="wrap notice__in">
+      <svg class="notice__glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M12 3.6 21.3 20H2.7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path>
+        <path d="M12 9.4v5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
+        <circle cx="12" cy="17.2" r="0.95" fill="currentColor"></circle>
+      </svg>
+      <div>
+        <h2>There is no login.</h2>
+        <p>Anyone who can reach the server can start sessions, change profiles and read ride data. Run it on a home network you trust, and never expose it to the internet.</p>
+        <p>The server listens on all interfaces so a TV or tablet on your network can show the ride. <code>OPENCYCLE_HOST=127.0.0.1</code> keeps it on this machine only.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__grid">
+    <div class="foot__id">
+      <span class="mark mark--static">
+        <svg class="mark__glyph" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+          <circle cx="32" cy="32" r="13" fill="none" stroke="currentColor" stroke-width="5"></circle>
+          <g transform="rotate(-24 32 32)">
+            <ellipse cx="32" cy="32" rx="28" ry="11" fill="none" stroke="currentColor" stroke-width="3.5" opacity="0.45"></ellipse>
+            <circle cx="58" cy="32" r="4.5" fill="currentColor"></circle>
+          </g>
+        </svg>
+        <span class="mark__word">openCycle</span>
+      </span>
+      <p>An open-source indoor cycling app. MIT licensed.</p>
+    </div>
+    <div class="foot__col">
+      <h3>Credits</h3>
+      <ul>
+        <li>Ship base meshes: <a href="https://quaternius.com/packs/ultimatespaceships.html">Ultimate Spaceships Pack</a> by Quaternius (CC0), re-finished for openCycle.</li>
+        <li>Fonts: <a href="fonts/OFL.txt">Barlow Condensed and Inter</a>, SIL Open Font License.</li>
+      </ul>
+    </div>
+    <div class="foot__col">
+      <h3>Repository</h3>
+      <ul>
+        <li><a href="https://github.com/rlfleming93/openCycle">github.com/rlfleming93/openCycle</a></li>
+        <li><a href="https://github.com/rlfleming93/openCycle/blob/main/LICENSE">MIT license</a></li>
+        <li><a href="https://github.com/rlfleming93/openCycle#readme">README</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  document.documentElement.classList.add('has-js');
+  var media = window.matchMedia('(prefers-reduced-motion: reduce)');
+  function motion() {
+    document.documentElement.classList.toggle('reduce-motion', media.matches);
+    var loops = document.querySelectorAll('video[data-motion]');
+    for (var i = 0; i < loops.length; i++) {
+      if (media.matches) {
+        loops[i].pause();
+        loops[i].removeAttribute('autoplay');
+      }
+    }
+  }
+  motion();
+  media.addEventListener('change', motion);
+
+  var copy = document.querySelector('[data-copy]');
+  if (copy) {
+    copy.addEventListener('click', function () {
+      var text = document.getElementById('commands').textContent;
+      var done = function (label) {
+        copy.textContent = label;
+        setTimeout(function () { copy.textContent = 'Copy commands'; }, 2600);
+      };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function () { done('Copied'); }, function () { done('Press Ctrl or Cmd + C'); });
+      } else {
+        done('Press Ctrl or Cmd + C');
+      }
+    });
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.tsbuildinfo
+data/rides/
+.env*
+.DS_Store
+*.storageState.json
+**/garmin/*.json
+.opencycle/
+*.sqlite*
+*.db*
+*.fit
+__pycache__/
+*.blend1
+assets/ships/vendor/
