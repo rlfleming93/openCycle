@@ -4,7 +4,7 @@ I built my own indoor cycling app. It holds my Wahoo KICKR at the watts the work
 
 It replaced the subscription app I was paying for. It's MIT licensed.
 
-Site: https://opencycle.pages.dev
+Site: https://opencycle.fleming.run
 
 ![Two riders on a burn chasing a raider, with the workout sidebar on the left and the rider cards at the bottom](docs/media/ride.webp)
 

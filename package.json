@@ -7,7 +7,7 @@
     "type": "git",
     "url": "https://github.com/rlfleming93/openCycle.git"
   },
-  "homepage": "https://opencycle.pages.dev",
+  "homepage": "https://opencycle.fleming.run",
   "keywords": ["indoor-cycling", "kickr", "ftms", "erg", "bluetooth", "fit", "workouts", "threejs"],
   "private": true,
   "type": "module",
