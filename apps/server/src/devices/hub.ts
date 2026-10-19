@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { BleManager } from './ble/manager.js';
 import { createSimDevices } from './sim/index.js';
 import type { DeviceRegistry } from './registry.js';
-import type { HrmDriver, TrainerDriver } from './driver.js';
+import type { HrmDriver, TrainerDriver, TrainerStatus } from './driver.js';
 
 /**
  * Facade over all device sources (sim + BLE). Emits a driver instance once per
@@ -15,6 +15,9 @@ export class DeviceHub extends EventEmitter<{ trainer: [TrainerDriver]; hrm: [Hr
   private readonly trainerDrivers = new Set<TrainerDriver>();
   private readonly hrmDrivers = new Set<HrmDriver>();
   private bleManager: BleManager | undefined;
+  // Status is event-only and drivers emit before later listeners attach, so the
+  // hub records it from registration on for late subscribers (new sockets).
+  private readonly statuses = new Map<string, TrainerStatus>();
 
   constructor(opts: { registry: DeviceRegistry; sim?: string; ble?: boolean }) {
     super();
@@ -53,10 +56,16 @@ export class DeviceHub extends EventEmitter<{ trainer: [TrainerDriver]; hrm: [Hr
     // Drop the tracked sets so a stop/start cycle cannot resurrect stale drivers.
     this.trainerDrivers.clear();
     this.hrmDrivers.clear();
+    this.statuses.clear();
   }
 
   drivers(): { trainers: TrainerDriver[]; hrms: HrmDriver[] } {
     return { trainers: [...this.trainerDrivers], hrms: [...this.hrmDrivers] };
+  }
+
+  /** Last status each driver reported, keyed by device id. */
+  lastStatuses(): ReadonlyMap<string, TrainerStatus> {
+    return this.statuses;
   }
 
   find(id: string): TrainerDriver | HrmDriver | undefined {
@@ -71,12 +80,14 @@ export class DeviceHub extends EventEmitter<{ trainer: [TrainerDriver]; hrm: [Hr
 
   private registerTrainer(trainer: TrainerDriver): void {
     this.trainerDrivers.add(trainer);
+    trainer.on('status', (status) => this.statuses.set(trainer.id, status));
     this.registry.upsertSeen({ id: trainer.id, kind: 'trainer', name: trainer.name });
     this.emit('trainer', trainer);
   }
 
   private registerHrm(hrm: HrmDriver): void {
     this.hrmDrivers.add(hrm);
+    hrm.on('status', (status) => this.statuses.set(hrm.id, status));
     this.registry.upsertSeen({ id: hrm.id, kind: 'hrm', name: hrm.name });
     this.emit('hrm', hrm);
   }

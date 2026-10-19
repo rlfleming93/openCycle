@@ -308,10 +308,10 @@ describe('importGarminZip', () => {
     expect(row.power1Hz).toEqual(expectedPower);
     expect(row.hr1Hz).toEqual(expectedHr);
     expect(row.durationS).toBe(239);
-    // Executed vector: weightedPower over the carried stream is 230; the HR
-    // average covers only present seconds (140, not the 111 a zero-filled
+    // Standard NP (full 30 s windows only) over the carried stream is 227; the
+    // HR average covers only present seconds (140, not the 111 a zero-filled
     // mean would give).
-    expect(row.summary).toEqual({ distanceM: 2390, avgPowerW: 250, weightedPowerW: 230, avgHrBpm: 140 });
+    expect(row.summary).toEqual({ distanceM: 2390, avgPowerW: 250, weightedPowerW: 227, avgHrBpm: 140 });
   });
 
   it('Smart-Recording-style 5 s cadence does not read as coasting', () => {

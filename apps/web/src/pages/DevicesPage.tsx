@@ -41,6 +41,7 @@ export default function DevicesPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const deviceStatus = useAppStore((s) => s.deviceStatus);
+  const deviceStatusMessage = useAppStore((s) => s.deviceStatusMessage);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +117,9 @@ export default function DevicesPage() {
 
   function deviceCard(device: ListedDevice) {
     const status = deviceStatus[device.id];
+    const message = deviceStatusMessage[device.id];
+    const showGarminPairingHint =
+      device.kind === 'hrm' && (message?.toLowerCase().includes('pairing') === true || status === 'error');
     const fresh = now - device.lastSeen < 5000;
     return (
       <div
@@ -140,6 +144,10 @@ export default function DevicesPage() {
                 {status ?? 'unknown'}
               </span>
             </div>
+            {message !== undefined && <p className="mt-1 text-xs text-dim">{message}</p>}
+            {showGarminPairingHint && (
+              <p className="mt-1 text-xs text-under">Garmin strap: hold its button 4 s to enter pairing mode.</p>
+            )}
             <p className="mt-1 font-mono text-xs text-dim">{shortId(device.id)}</p>
           </div>
           <div className="shrink-0 text-right text-xs text-dim">

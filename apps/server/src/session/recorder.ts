@@ -22,6 +22,8 @@ export interface RideSummary {
   distanceM: number;
   avgPowerW: number;
   weightedPowerW: number;
+  workKj: number;
+  avgCadenceRpm: number;
   avgHrBpm: number | null;
   trainingLoad: number | null;
 }
@@ -247,22 +249,52 @@ function mean(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function averageCadence(samples: StoredSample[]): number {
+  let sum = 0;
+  let count = 0;
+  for (const sample of samples) {
+    if (sample.cadenceRpm <= 0) continue;
+    sum += sample.cadenceRpm;
+    count += 1;
+  }
+  return count > 0 ? Math.round(sum / count) : 0;
+}
+
 function computeSummary(samples: StoredSample[], ftpW: number | undefined, elapsedS?: number): RideSummary {
   if (samples.length === 0) {
-    return { durationS: 0, distanceM: 0, avgPowerW: 0, weightedPowerW: 0, avgHrBpm: null, trainingLoad: null };
+    return {
+      durationS: 0,
+      distanceM: 0,
+      avgPowerW: 0,
+      weightedPowerW: 0,
+      workKj: 0,
+      avgCadenceRpm: 0,
+      avgHrBpm: null,
+      trainingLoad: null,
+    };
   }
   const last = samples[samples.length - 1]!;
   // Riding seconds when the engine provides them (pause-aware); otherwise the
   // recorded sample count is the closest estimate.
   const durationS = elapsedS !== undefined ? Math.round(elapsedS) : samples.length;
   const power1Hz = samples.map((sample) => sample.powerW);
-  const avgPowerW = Math.round(mean(power1Hz));
+  const totalWorkJ = power1Hz.reduce((sum, power) => sum + power, 0);
+  const avgPowerW = Math.round(totalWorkJ / power1Hz.length);
   const weightedPowerW = Math.round(weightedPower(power1Hz));
   const hrValues = samples.filter((sample) => sample.hrBpm !== null).map((sample) => sample.hrBpm as number);
   const avgHrBpm = hrValues.length > 0 ? Math.round(mean(hrValues)) : null;
   const trainingLoadValue =
     ftpW !== undefined && ftpW > 0 ? trainingLoad(durationS, intensity(weightedPowerW, ftpW)) : null;
-  return { durationS, distanceM: last.distanceM, avgPowerW, weightedPowerW, avgHrBpm, trainingLoad: trainingLoadValue };
+  return {
+    durationS,
+    distanceM: last.distanceM,
+    avgPowerW,
+    weightedPowerW,
+    workKj: totalWorkJ / 1000,
+    avgCadenceRpm: averageCadence(samples),
+    avgHrBpm,
+    trainingLoad: trainingLoadValue,
+  };
 }
 
 /** Encodes a FIT activity file (File Id, Device Info, timer Events, 1 Hz Records, Laps, Session, Activity). */
@@ -328,6 +360,15 @@ function writeFitFile(
     totalTimerTime: summary.durationS,
     totalDistance: summary.distanceM,
     avgPower: summary.avgPowerW,
+    normalizedPower: summary.weightedPowerW,
+    avgCadence: summary.avgCadenceRpm,
+    totalWork: Math.round(summary.workKj * 1000),
+    ...(opts.ftpW !== undefined && summary.trainingLoad !== null
+      ? {
+          intensityFactor: intensity(summary.weightedPowerW, opts.ftpW),
+          trainingStressScore: summary.trainingLoad,
+        }
+      : {}),
     ...(summary.avgHrBpm !== null ? { avgHeartRate: summary.avgHrBpm } : {}),
     firstLapIndex: 0,
     numLaps: laps.length,
@@ -362,7 +403,6 @@ function lapFields(
   }
   const inLap = samples.filter((sample) => sample.ts > lap.startTs && sample.ts <= lap.endTs);
   const power = inLap.map((sample) => sample.powerW);
-  const cadence = inLap.map((sample) => sample.cadenceRpm);
   const hrValues = inLap.filter((sample) => sample.hrBpm !== null).map((sample) => sample.hrBpm as number);
   const lastInLap = inLap[inLap.length - 1];
   const distanceM = lastInLap !== undefined ? lastInLap.distanceM - baselineM : 0;
@@ -377,7 +417,7 @@ function lapFields(
     totalTimerTime: lap.ridingS,
     totalDistance: Math.max(0, distanceM),
     avgPower: power.length > 0 ? Math.round(mean(power)) : 0,
-    avgCadence: cadence.length > 0 ? Math.round(mean(cadence)) : 0,
+    avgCadence: averageCadence(inLap),
     ...(hrValues.length > 0 ? { avgHeartRate: Math.round(mean(hrValues)) } : {}),
     sport: 'cycling',
     subSport: 'indoorCycling',

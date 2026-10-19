@@ -1,15 +1,18 @@
+import { crankTorqueNm } from '@opencycle/shared';
 import type { SessionSnapshot, TelemetrySample } from '@opencycle/shared';
 
-import { getEffortCue, getWorkoutCommand, type EffortCueState } from '../../game/feedback.js';
+import { getEffortCue, getWorkoutCommand, pauseBannerText, type EffortCueState } from '../../game/feedback.js';
 import {
   LEG_ON_TARGET_DISPLAY_S,
   fmtClock,
   legOnTargetPct,
+  trailingAvgCadence,
   trailingAvgPower,
 } from '../../game/hud.js';
 import { identityColor } from '../../lib/identity.js';
 import { targetRatioColor, zoneColor } from '../../lib/zones.js';
 import { useAppStore } from '../../store.js';
+import { CadenceDial, TorqueMeter } from './CadenceDial.js';
 
 type Rider = SessionSnapshot['riders'][number];
 
@@ -44,7 +47,10 @@ export default function RiderCard({ rider, riderIndex }: { rider: Rider; riderIn
   const deviceStatus = useAppStore((state) => state.deviceStatus);
 
   const avgPower = trailingAvgPower(telemetry);
+  const avgCadence = trailingAvgCadence(telemetry);
+  const torqueNm = crankTorqueNm(avgPower, avgCadence ?? 0);
   const paused = rider.state === 'paused';
+  const trainerPaused = paused && rider.pauseReason === 'trainer';
   const hasTelemetry = telemetry.length > 0 && latest !== undefined;
   // With a numeric target the numeral reads ratio-to-target; free rides read
   // against FTP instead (same law as the plain dashboard).
@@ -54,6 +60,7 @@ export default function RiderCard({ rider, riderIndex }: { rider: Rider; riderIn
       : zoneColor(rider.ftpW > 0 ? (avgPower / rider.ftpW) * 100 : 0);
   const trainerStatus = deviceStatus[rider.trainerId];
   const hrmStatus = rider.hrmId !== undefined ? deviceStatus[rider.hrmId] : undefined;
+  const trainerOffline = trainerStatus === 'disconnected' || trainerStatus === 'error';
   const hrmOffline = hrmStatus === 'disconnected' || hrmStatus === 'error';
 
   const cue = getEffortCue({
@@ -99,32 +106,62 @@ export default function RiderCard({ rider, riderIndex }: { rider: Rider; riderIn
         </span>
       </div>
 
-      <div className="mt-[clamp(4px,0.31vw,12px)] flex items-end gap-[clamp(12px,1.15vw,44px)]">
+      {paused && (
         <div
-          className={`flex items-baseline font-display text-[clamp(96px,6.9vw,264px)] font-bold leading-[0.9] tabular-nums ${powerColor} ${paused ? 'opacity-40' : ''}`}
+          aria-live="polite"
+          className={`mt-[clamp(6px,0.52vw,20px)] flex items-center gap-[clamp(6px,0.52vw,20px)] rounded-[8px] border px-[clamp(8px,0.73vw,24px)] py-[clamp(4px,0.42vw,14px)] font-display text-[clamp(12px,0.94vw,30px)] font-bold ${
+            trainerPaused
+              ? 'border-danger/50 bg-danger/10 text-danger'
+              : 'border-over/50 bg-over/10 text-over'
+          }`}
+        >
+          {trainerPaused && (
+            <span
+              aria-hidden="true"
+              className="h-[clamp(6px,0.52vw,16px)] w-[clamp(6px,0.52vw,16px)] shrink-0 animate-pulse rounded-full bg-danger motion-reduce:animate-none"
+            />
+          )}
+          <span>{pauseBannerText(rider)}</span>
+        </div>
+      )}
+
+      <div className="mt-[clamp(4px,0.31vw,12px)] flex items-end gap-[clamp(10px,0.94vw,36px)]">
+        <div
+          className={`flex shrink-0 items-baseline font-display text-[clamp(96px,6.9vw,264px)] font-bold leading-[0.9] tabular-nums ${powerColor} ${paused ? 'opacity-40' : ''}`}
         >
           {Math.round(avgPower)}
-          <span className="ml-[clamp(4px,0.31vw,14px)] text-[clamp(22px,2.08vw,80px)] text-dim">W</span>
+          <span className="ml-[clamp(4px,0.31vw,14px)] text-[clamp(22px,2.08vw,80px)] text-dim">
+            W
+          </span>
         </div>
-        <div className="min-w-0 pb-[clamp(6px,0.62vw,24px)] font-display uppercase tracking-[0.06em]">
-          <div className="text-[clamp(12px,0.94vw,30px)] text-dim">{commandKey}</div>
-          <div className="truncate text-[clamp(22px,2.08vw,80px)] font-bold text-ink">
-            {commandRest.join(' ')}
-          </div>
-          <div className="text-[clamp(15px,1.354vw,44px)] text-over">{commandMeta}</div>
-        </div>
+        <CadenceDial
+          cadenceRpm={avgCadence}
+          compact
+          className={`w-[clamp(90px,7.3vw,224px)] shrink-0 ${paused ? 'opacity-40' : ''}`}
+        />
+        <TorqueMeter
+          compact
+          torqueNm={torqueNm}
+          className={`min-w-0 flex-1 pb-[clamp(4px,0.42vw,14px)] ${paused ? 'opacity-40' : ''}`}
+        />
+      </div>
+
+      <div className="mt-[clamp(6px,0.52vw,20px)] flex items-baseline gap-[clamp(8px,0.73vw,28px)] font-display uppercase tracking-[0.06em]">
+        <span className="shrink-0 text-[clamp(12px,0.94vw,30px)] text-dim">{commandKey}</span>
+        <span className="min-w-0 truncate text-[clamp(22px,2.08vw,80px)] font-bold text-ink">
+          {commandRest.join(' ')}
+        </span>
+        <span className="shrink-0 text-[clamp(15px,1.354vw,44px)] text-over">{commandMeta}</span>
       </div>
 
       <div className="mt-[clamp(6px,0.52vw,20px)] flex flex-wrap items-baseline gap-x-[clamp(14px,1.46vw,56px)] gap-y-1 font-display text-[clamp(15px,1.25vw,38px)] uppercase tracking-[0.06em] text-dim">
-        <span>
-          <span className="font-semibold tabular-nums text-ink">{Math.round(latest?.cadenceRpm ?? 0)}</span> rpm
-        </span>
         <span>
           <span className="font-semibold tabular-nums text-ink">
             {latest?.hrBpm !== undefined ? latest.hrBpm : '—'}
           </span>{' '}
           bpm
         </span>
+        {trainerOffline && <span className="text-danger">TRAINER OFFLINE</span>}
         {hrmOffline && <span className="text-over">HR OFFLINE</span>}
         {rider.biasPct !== 0 && (
           <span className="text-over">

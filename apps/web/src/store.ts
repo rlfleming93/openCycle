@@ -41,6 +41,8 @@ export interface AppState {
   events: SessionEvent[];
   /** deviceId -> last status kind. */
   deviceStatus: Record<string, string>;
+  /** deviceId -> last driver status message. */
+  deviceStatusMessage: Record<string, string | undefined>;
   /** Last server `error` frame message, additive to the frozen contract. */
   lastError: string | null;
   /**
@@ -69,6 +71,7 @@ export const useAppStore = create<AppState>()((set) => ({
   latest: {},
   events: [],
   deviceStatus: {},
+  deviceStatusMessage: {},
   lastError: null,
   hydrated: false,
   spaceGame: loadSpaceGame(),
@@ -134,7 +137,18 @@ export const useAppStore = create<AppState>()((set) => ({
         break;
       }
       case 'deviceStatus': {
-        set((state) => ({ deviceStatus: { ...state.deviceStatus, [msg.deviceId]: msg.status } }));
+        set((state) => {
+          const deviceStatusMessage = { ...state.deviceStatusMessage };
+          if (msg.message === undefined) {
+            delete deviceStatusMessage[msg.deviceId];
+          } else {
+            deviceStatusMessage[msg.deviceId] = msg.message;
+          }
+          return {
+            deviceStatus: { ...state.deviceStatus, [msg.deviceId]: msg.status },
+            deviceStatusMessage,
+          };
+        });
         break;
       }
       case 'error': {

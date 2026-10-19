@@ -9,11 +9,15 @@ import {
   weightedPower,
 } from './load.js';
 
-/** Independent naive weighted power: slice-based rolling windows, not windowed sums. */
+/** Independent naive weighted power: slice-based full windows, not windowed sums. */
 function naiveWeightedPower(power1Hz: number[]): number {
+  if (power1Hz.length === 0) return 0;
+  if (power1Hz.length < 30) {
+    return power1Hz.reduce((sum, power) => sum + power, 0) / power1Hz.length;
+  }
   const rolling: number[] = [];
-  for (let i = 0; i < power1Hz.length; i++) {
-    const window = power1Hz.slice(Math.max(0, i - 29), i + 1);
+  for (let i = 29; i < power1Hz.length; i++) {
+    const window = power1Hz.slice(i - 29, i + 1);
     rolling.push(window.reduce((a, b) => a + b, 0) / window.length);
   }
   const fourthMean = rolling.reduce((a, b) => a + b ** 4, 0) / rolling.length;
@@ -38,6 +42,11 @@ describe('weightedPower', () => {
       expected: 200,
     },
     {
+      name: 'rides under 30 s fall back to their plain average',
+      input: [100, 300],
+      expected: 200,
+    },
+    {
       name: 'alternating 100/300 W in 30 s blocks for 300 s',
       input: alternating,
       expected: naiveWeightedPower(alternating),
@@ -56,15 +65,14 @@ describe('weightedPower', () => {
 
   it('hand-computed vector: 100 W x 30 then 300 W x 30', () => {
     // Derived by hand (not from the in-test mirror):
-    // Rolling 30 s windows over [100^30, 300^30]:
-    //  - i = 0..29: partial/full windows are all 100 W (30 values).
-    //  - i = 30..59: the window slides 29x100+1x300 .. 30x300, i.e. averages
-    //    100 + (200/30)*k for k = 1..30.
-    // Mean of 4th powers = (30*100^4 + sum_{k=1..30} (100 + 200k/30)^4) / 60
-    //                    = 1327629596.7078...
-    // 4th root = 190.8838700146 -> hardcoded to 190.8839.
+    // Complete rolling 30 s windows over [100^30, 300^30]:
+    //  - i = 29: one 100 W window.
+    //  - i = 30..59: averages 100 + (200/30)*k for k = 1..30.
+    // Mean of 4th powers = (100^4 + sum_{k=1..30} (100 + 200k/30)^4) / 31
+    //                    = 2476057283.9506...
+    // 4th root = 223.0694887793 -> hardcoded to 223.0695.
     const input = [...Array<number>(30).fill(100), ...Array<number>(30).fill(300)];
-    expect(weightedPower(input)).toBeCloseTo(190.8839, 3);
+    expect(weightedPower(input)).toBeCloseTo(223.0695, 3);
   });
 });
 

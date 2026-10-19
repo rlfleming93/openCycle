@@ -102,6 +102,8 @@ describe('Recorder', () => {
       distanceM: 1200,
       avgPowerW: 200,
       weightedPowerW: 200,
+      workKj: 24,
+      avgCadenceRpm: 90,
       avgHrBpm: 145,
       trainingLoad: (120 / 3600) * 0.8 ** 2 * 100,
     });
@@ -127,7 +129,12 @@ describe('Recorder', () => {
   it('encodes a FIT file that round-trips: integrity, record count, laps, session and activity totals', async () => {
     const { recorder } = freshRecorder();
     const rideId = recorder.startRide({ sessionId: 's1', riderId: 'rider-1', startedAt: STARTED_AT });
-    appendRange(recorder, rideId, STARTED_AT, 120, { powerW: 200, hrBpm: 145 });
+    for (let i = 0; i < 120; i++) {
+      recorder.append(
+        rideId,
+        sampleAt(STARTED_AT, i, { powerW: 200, hrBpm: 145, cadenceRpm: i % 2 === 0 ? 90 : 0 }),
+      );
+    }
     const endedAt = STARTED_AT + 120_000;
     const laps = [
       { startTs: STARTED_AT, endTs: STARTED_AT + 60_000, ridingS: 60 },
@@ -163,6 +170,7 @@ describe('Recorder', () => {
     expect(lapsDecoded[0]!.totalElapsedTime).toBeCloseTo(60, 2);
     expect(lapsDecoded[1]!.totalElapsedTime).toBeCloseTo(60, 2);
     expect(lapsDecoded[0]!.avgPower).toBe(200);
+    expect(lapsDecoded[0]!.avgCadence).toBe(90);
     expect(lapsDecoded[0]!.sport).toBe('cycling');
     expect(lapsDecoded[0]!.subSport).toBe('indoorCycling');
 
@@ -174,6 +182,11 @@ describe('Recorder', () => {
     expect(session.totalTimerTime).toBeCloseTo(120, 2);
     expect(session.totalDistance).toBeCloseTo(1200, 2);
     expect(session.avgPower).toBe(200);
+    expect(session.normalizedPower).toBe(200);
+    expect(session.intensityFactor).toBeCloseTo(0.8, 3);
+    expect(session.trainingStressScore).toBeCloseTo(2.1, 6);
+    expect(session.totalWork).toBe(24_000);
+    expect(session.avgCadence).toBe(90);
     expect(session.avgHeartRate).toBe(145);
     expect(session.numLaps).toBe(2);
 

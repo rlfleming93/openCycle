@@ -33,7 +33,8 @@ export interface RecorderLike {
 
 /**
  * Session engine: owns the 1 Hz per-rider tick loop, change-only ERG dispatch,
- * physics speed/distance, co-op events and the ERG death-spiral guard.
+ * physics speed/distance, co-op events, the ERG death-spiral guard and the
+ * trainer-loss auto-pause.
  *
  * The engine never connects or disconnects drivers: the caller owns device
  * lifecycle and hands live driver instances over through `findDriver`. The
@@ -56,9 +57,11 @@ export type EngineEvents = {
 };
 
 const DEFAULT_TICK_MS = 1000;
-/** Stale telemetry: samples older than 3 ticks (min 3 s) read as 0 W / 0 rpm. */
+/** Lost trainer: no sample for more than 3 ticks (min 3 s) auto-pauses the rider. */
 const STALE_SAMPLE_TICKS = 3;
 const STALE_SAMPLE_MIN_MS = 3000;
+/** HRM readings older than this drop out of samples instead of repeating. */
+const HR_STALE_MS = 5000;
 /** Bias clamp, in percent-FTP steps. */
 const BIAS_CLAMP_PCT = 15;
 /** bothInZone: every eligible rider within ±10 % of their step target. */
@@ -82,6 +85,7 @@ function rescuePairKey(helperId: string, riderId: string): string {
 }
 
 type RiderState = 'riding' | 'paused' | 'stopped';
+type PauseReason = NonNullable<SessionSnapshot['riders'][number]['pauseReason']>;
 
 interface RiderSession {
   cfg: RiderConfig;
@@ -102,6 +106,8 @@ interface RiderSession {
   surveysClean: number;
   biasPct: number;
   state: RiderState;
+  /** Why the rider is paused; read only while state is 'paused'. */
+  pauseReason: PauseReason | undefined;
   startedAt: number;
   /** Seconds actually riding (pauses excluded — matches the recorded ride). */
   elapsedS: number;
@@ -114,6 +120,8 @@ interface RiderSession {
   /** Riding seconds accumulated in the current lap (pauses excluded). */
   lapRidingS: number;
   lastTrainerSample: TrainerSample | undefined;
+  /** Trainer reported disconnected/error; cleared by its next sample. */
+  trainerDown: boolean;
   lastHrmSample: HrmSample | undefined;
   /** Last ERG watts accepted by the trainer; null = nothing accepted yet. */
   lastSentTargetW: number | null;
@@ -267,6 +275,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     const rider = this.findRider(riderId);
     if (!rider || rider.state === 'stopped') return;
     const priorState = rider.state;
+    const priorPauseReason = rider.pauseReason;
     const endedAt = this.now();
     // The rider only counts as stopped once the ride is safely finalized: a
     // failed finalize reverts the state (listeners stay attached, samples keep
@@ -280,6 +289,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
       });
     } catch (err) {
       rider.state = priorState;
+      rider.pauseReason = priorPauseReason;
       throw err;
     }
     rider.state = 'stopped';
@@ -290,8 +300,12 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
 
   pause(riderId: string): void {
     const rider = this.findRider(riderId);
-    if (!rider || rider.state !== 'riding') return;
+    if (!rider || rider.state === 'stopped') return;
+    // A manual pause also takes over a trainer auto-pause, so a returning
+    // trainer never resumes a rider who paused on purpose.
+    if (rider.state === 'paused' && rider.pauseReason === 'manual') return;
     rider.state = 'paused';
+    rider.pauseReason = 'manual';
     // NOTE: the trainer keeps its last ERG target while paused — no push is
     // issued — and the rider emits no telemetry: their state is frozen, the
     // client holds the last sample until resume.
@@ -301,7 +315,9 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
   resume(riderId: string): void {
     const rider = this.findRider(riderId);
     if (!rider || rider.state !== 'paused') return;
+    // Also ends a trainer auto-pause; a still-lost trainer re-pauses on the next tick.
     rider.state = 'riding';
+    rider.pauseReason = undefined;
     this.emitState();
   }
 
@@ -385,6 +401,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
       surveysClean: 0,
       biasPct: 0,
       state: 'riding',
+      pauseReason: undefined,
       startedAt,
       elapsedS: 0,
       distanceM: 0,
@@ -399,17 +416,12 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
       lapStartTs: startedAt,
       lapRidingS: 0,
       lastTrainerSample: undefined,
+      trainerDown: false,
       lastHrmSample: undefined,
       lastSentTargetW: null,
       guard: { lowCadenceS: 0, active: false },
-      onSample: (sample) => {
-        rider.lastTrainerSample = sample;
-      },
-      // A lost/erroring trainer may not have applied the last target: forget
-      // it so the next tick re-pushes (the driver layer re-acquires control).
-      onStatus: (status) => {
-        if (status.kind === 'controlLost' || status.kind === 'error') rider.lastSentTargetW = null;
-      },
+      onSample: (sample) => this.onTrainerSample(rider, sample),
+      onStatus: (status) => this.onTrainerStatus(rider, status),
       onHr: (sample) => {
         rider.lastHrmSample = sample;
       },
@@ -439,7 +451,14 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     const events: SessionEvent[] = [];
     for (const rider of session.riders) {
       if (rider.state !== 'riding') continue;
-      this.advanceRider(rider, dt, nowTs, samples, events);
+      // A lost trainer pauses the rider before a 0 W dropout row is recorded
+      // or fed to the death-spiral guard; its next fresh sample resumes it.
+      const trainerSample = this.liveTrainerSample(rider, nowTs);
+      if (trainerSample === undefined) {
+        this.pauseForTrainer(rider);
+        continue;
+      }
+      this.advanceRider(rider, trainerSample, dt, nowTs, samples, events);
     }
     this.updateBothInZone(session, dt, nowTs, events);
     this.updateRescue(session, dt, nowTs, events);
@@ -450,6 +469,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
 
   private advanceRider(
     rider: RiderSession,
+    trainerSample: TrainerSample,
     dt: number,
     nowTs: number,
     samples: TelemetrySample[],
@@ -463,30 +483,30 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     this.advanceLegs(rider, nowTs, events);
     this.advanceSteps(rider, nowTs, events);
     const stepTarget = this.currentStepTarget(rider);
-    // A trainer that stopped emitting reads as 0 W / 0 rpm (and accrues no
-    // distance): stale samples older than 3 ticks are ignored.
-    const live = this.isSampleLive(rider, nowTs);
     // Root clamps: FTMS power is a signed int16 (coast-down reads negative)
     // and cadence/HRM values can decode to garbage on contact loss — every
     // emitted sample must satisfy TelemetrySampleSchema.
-    const power = Math.max(0, live ? rider.lastTrainerSample!.powerW : 0);
-    const cadence = Math.max(0, live ? rider.lastTrainerSample!.cadenceRpm : 0);
+    const power = Math.max(0, trainerSample.powerW);
+    const cadence = Math.max(0, trainerSample.cadenceRpm);
     const target = this.applyGuard(rider, stepTarget, power, cadence, dt, nowTs, events);
     // Survey accounting: leg seconds count only after the ERG settle window,
-    // and on-target seconds additionally need a live sample, an inactive
-    // guard and power within ±10 % of the (bias-adjusted) step target.
+    // and on-target seconds additionally need an inactive guard and power
+    // within ±10 % of the (bias-adjusted) step target.
     const leg = rider.legs?.[rider.legIndex];
     if (leg !== undefined && rider.clockS - leg.startS > LEG_SETTLE_S && stepTarget !== null) {
       rider.legTargetedS += dt;
-      if (live && !rider.guard.active && Math.abs(power - stepTarget) <= ZONE_TOLERANCE * stepTarget) {
+      if (!rider.guard.active && Math.abs(power - stepTarget) <= ZONE_TOLERANCE * stepTarget) {
         rider.legOnTargetS += dt;
       }
     }
     this.pushTarget(rider, target);
     const speedMps = virtualSpeed(power, rider.cfg.profile.weightKg);
     rider.distanceM += speedMps * dt;
-    const hrBpm = rider.lastHrmSample && rider.lastHrmSample.bpm >= 20 && rider.lastHrmSample.bpm <= 250
-      ? rider.lastHrmSample.bpm
+    // A strap silent for 5 s drops out instead of repeating its last reading.
+    const lastHr = rider.lastHrmSample;
+    const hrm = lastHr !== undefined && nowTs - lastHr.ts <= HR_STALE_MS ? lastHr : undefined;
+    const hrBpm = hrm && hrm.bpm >= 20 && hrm.bpm <= 250
+      ? hrm.bpm
       : undefined; // contact lost: drop the sample, never forward a garbage value
     const sample: TelemetrySample = {
       riderId: rider.cfg.profile.id,
@@ -494,8 +514,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
       powerW: power,
       cadenceRpm: cadence,
       hrBpm,
-      hrRrMs:
-        rider.lastHrmSample && rider.lastHrmSample.rrMs.length > 0 ? rider.lastHrmSample.rrMs : undefined,
+      hrRrMs: hrm && hrm.rrMs.length > 0 ? hrm.rrMs : undefined,
       speedKmh: speedMps * 3.6,
       distanceM: rider.distanceM,
       targetW: target ?? undefined,
@@ -504,12 +523,48 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     samples.push(sample);
   }
 
-  /** Whether the rider's last trainer sample is fresh (same 3-tick window advanceRider uses). */
-  private isSampleLive(rider: RiderSession, nowTs: number): boolean {
+  /**
+   * The rider's last trainer sample while the link is up and the sample is
+   * fresh (3 ticks, min 3 s); undefined means the trainer is lost.
+   */
+  private liveTrainerSample(rider: RiderSession, nowTs: number): TrainerSample | undefined {
     const lastSample = rider.lastTrainerSample;
-    if (lastSample === undefined) return false;
+    if (rider.trainerDown || lastSample === undefined) return undefined;
     const staleMs = Math.max(STALE_SAMPLE_TICKS * this.tickMs, STALE_SAMPLE_MIN_MS);
-    return nowTs - lastSample.ts <= staleMs;
+    return nowTs - lastSample.ts <= staleMs ? lastSample : undefined;
+  }
+
+  /** Trainer lost: freeze the rider like a manual pause; ERG is re-pushed once it is back. */
+  private pauseForTrainer(rider: RiderSession): void {
+    rider.state = 'paused';
+    rider.pauseReason = 'trainer';
+    rider.lastSentTargetW = null;
+  }
+
+  /** A fresh sample resumes a trainer auto-pause; a manual pause stays put. */
+  private onTrainerSample(rider: RiderSession, sample: TrainerSample): void {
+    rider.lastTrainerSample = sample;
+    rider.trainerDown = false;
+    if (rider.state !== 'paused' || rider.pauseReason !== 'trainer') return;
+    if (this.liveTrainerSample(rider, this.now()) === undefined) return;
+    rider.state = 'riding';
+    rider.pauseReason = undefined;
+    this.emitState();
+  }
+
+  /**
+   * A lost/erroring trainer may not have applied the last target: forget it
+   * so the next riding tick re-pushes (the driver layer re-acquires control).
+   * A dropped link also pauses the rider now, not after the stale window.
+   */
+  private onTrainerStatus(rider: RiderSession, status: TrainerStatus): void {
+    if (status.kind === 'controlLost') rider.lastSentTargetW = null;
+    if (status.kind !== 'disconnected' && status.kind !== 'error') return;
+    rider.trainerDown = true;
+    rider.lastSentTargetW = null;
+    if (rider.state !== 'riding') return;
+    this.pauseForTrainer(rider);
+    this.emitState();
   }
 
   /**
@@ -716,12 +771,12 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
       resetStreak(); // solo stretch never counts
       return;
     }
-    // A silent trainer is out of the zone: a stale lastTrainerSample (same
-    // window as advanceRider) reads as 0 W and resets the streak.
+    // A silent trainer auto-pauses its rider in tick(), out of `eligible`;
+    // a stale sample would still read as 0 W here, never as in zone.
     let allInZone = true;
     for (const rider of eligible) {
       const target = this.currentStepTarget(rider) as number; // filter guarantees non-null
-      const power = this.isSampleLive(rider, nowTs) ? rider.lastTrainerSample!.powerW : 0;
+      const power = this.liveTrainerSample(rider, nowTs)?.powerW ?? 0;
       if (Math.abs(power - target) > ZONE_TOLERANCE * target) {
         allInZone = false;
         break;
@@ -770,8 +825,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     for (const helper of session.riders) {
       const helperId = helper.cfg.profile.id;
       const target = this.drivenTarget(helper);
-      const live = this.isSampleLive(helper, nowTs);
-      const power = live ? Math.max(0, helper.lastTrainerSample!.powerW) : 0;
+      const power = Math.max(0, this.liveTrainerSample(helper, nowTs)?.powerW ?? 0);
       const eligible =
         helper.state === 'riding' &&
         !helper.guard.active &&
@@ -812,6 +866,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
           workoutId: rider.cfg.workoutId,
           workoutName: rider.cfg.workout?.name,
           state: rider.state,
+          ...(rider.state === 'paused' ? { pauseReason: rider.pauseReason } : {}),
           stepIndex: rider.stepIndex,
           stepRemainingS: step ? Math.max(0, step.endS - rider.clockS) : null,
           workoutRemainingS: rider.flat

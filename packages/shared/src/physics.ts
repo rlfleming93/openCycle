@@ -45,6 +45,12 @@ const MAX_ITERS = 50;
 /** Convergence threshold on the speed step (m/s). */
 const EPS = 1e-6;
 
+/** Crank torque (N·m) from power and cadence; too-slow pedaling is not meaningful. */
+export function crankTorqueNm(powerW: number, cadenceRpm: number): number | null {
+  if (cadenceRpm < 20 || powerW <= 0) return null;
+  return powerW / ((2 * Math.PI * cadenceRpm) / 60);
+}
+
 /**
  * Steady-state virtual speed (m/s) for the given rider power output.
  *

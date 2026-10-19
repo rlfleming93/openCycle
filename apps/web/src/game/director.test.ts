@@ -17,6 +17,7 @@ function makeState(over: Partial<AppState> = {}): AppState {
     latest: {},
     events: [],
     deviceStatus: {},
+    deviceStatusMessage: {},
     lastError: null,
     hydrated: false,
     spaceGame: true,

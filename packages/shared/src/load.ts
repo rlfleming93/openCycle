@@ -14,22 +14,25 @@ const FATIGUE_TAU_DAYS = 7;
 
 /**
  * Weighted power: 30 s trailing rolling average power over a 1 Hz array, mean
- * of 4th powers, then 4th root. The first 29 samples use their partial
- * window, so arrays shorter than 30 s still compute. Empty array -> 0.
+ * of 4th powers, then 4th root. Only complete 30 s windows contribute.
+ * Empty array -> 0.
  */
 export function weightedPower(power1Hz: number[]): number {
   if (power1Hz.length === 0) return 0;
+  if (power1Hz.length < WEIGHTED_WINDOW_S) {
+    // A short ride has no complete rolling window, so NP falls back to its plain average.
+    return power1Hz.reduce((sum, power) => sum + power, 0) / power1Hz.length;
+  }
 
   let windowSum = 0;
   let fourthPowerSum = 0;
   for (let i = 0; i < power1Hz.length; i++) {
     windowSum += power1Hz[i]!;
     if (i >= WEIGHTED_WINDOW_S) windowSum -= power1Hz[i - WEIGHTED_WINDOW_S]!;
-    const windowAvg = windowSum / Math.min(i + 1, WEIGHTED_WINDOW_S);
-    fourthPowerSum += windowAvg ** 4;
+    if (i >= WEIGHTED_WINDOW_S - 1) fourthPowerSum += (windowSum / WEIGHTED_WINDOW_S) ** 4;
   }
 
-  return (fourthPowerSum / power1Hz.length) ** 0.25;
+  return (fourthPowerSum / (power1Hz.length - WEIGHTED_WINDOW_S + 1)) ** 0.25;
 }
 
 /**

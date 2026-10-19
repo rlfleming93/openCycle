@@ -34,8 +34,18 @@ export interface WorkoutCommand {
 
 const unavailableStatuses = new Set(['disconnected', 'error', 'controlLost']);
 
+/** Pause banner copy; a trainer pause before any riding time is the start, not a dropout. */
+export function pauseBannerText(rider: RiderSnapshot): string {
+  if (rider.pauseReason !== 'trainer') return 'PAUSED';
+  return rider.elapsedS === 0 ? 'WAITING FOR TRAINER — start pedaling' : 'TRAINER DISCONNECTED — ride paused, reconnecting…';
+}
+
 export function getEffortCue(input: EffortCueInput): EffortCue {
   const { rider, trainerStatus, avgPowerW, cadenceRpm } = input;
+  if (rider.state === 'paused' && rider.pauseReason === 'trainer') {
+    const instruction = rider.elapsedS === 0 ? 'START PEDALING' : 'RECONNECTING TRAINER';
+    return { state: 'paused', instruction, deltaW: null, tone: 'neutral' };
+  }
   if (trainerStatus !== undefined && unavailableStatuses.has(trainerStatus)) {
     return { state: 'unavailable', instruction: 'WAITING FOR TRAINER', deltaW: null, tone: 'neutral' };
   }

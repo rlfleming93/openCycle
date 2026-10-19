@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 
 import { RiderProfileSchema, type RiderProfile } from '@opencycle/shared';
 
-import { createProfile, updateProfile } from '../lib/api.js';
+import { assignDevice, createProfile, updateProfile, type ListedDevice } from '../lib/api.js';
 
 const ProfileInputSchema = RiderProfileSchema.omit({ id: true });
 
@@ -24,6 +24,7 @@ const inputClass =
 interface ProfileFormProps {
   /** Existing profile when editing; omit for create. */
   initial?: RiderProfile;
+  devices: ListedDevice[];
   /** Called with the saved profile after the mutation succeeds. */
   onSaved: (profile: RiderProfile) => void;
   onCancel?: () => void;
@@ -37,13 +38,15 @@ interface FormValues {
   restingHr: string;
   maxHr: string;
   garminEmail: string;
+  trainerId: string;
+  hrmId: string;
 }
 
 type ValidationResult =
   | { ok: true; value: Omit<RiderProfile, 'id'> }
   | { ok: false; error: string };
 
-function initialValues(initial?: RiderProfile): FormValues {
+function initialValues(initial: RiderProfile | undefined, devices: ListedDevice[]): FormValues {
   return {
     name: initial?.name ?? '',
     ftpW: initial === undefined ? '' : String(initial.ftpW),
@@ -52,6 +55,14 @@ function initialValues(initial?: RiderProfile): FormValues {
     restingHr: initial?.restingHr === undefined ? '' : String(initial.restingHr),
     maxHr: initial?.maxHr === undefined ? '' : String(initial.maxHr),
     garminEmail: initial?.garmin?.email ?? '',
+    trainerId:
+      initial === undefined
+        ? ''
+        : (devices.find((device) => device.kind === 'trainer' && device.riderId === initial.id)?.id ?? ''),
+    hrmId:
+      initial === undefined
+        ? ''
+        : (devices.find((device) => device.kind === 'hrm' && device.riderId === initial.id)?.id ?? ''),
   };
 }
 
@@ -76,8 +87,9 @@ function validate(values: FormValues): ValidationResult {
   return { ok: false, error: `${FIELD_LABELS[path] ?? (path === '' ? 'Profile' : path)}: ${issue.message}` };
 }
 
-export default function ProfileForm({ initial, onSaved, onCancel }: ProfileFormProps) {
-  const [values, setValues] = useState<FormValues>(() => initialValues(initial));
+export default function ProfileForm({ initial, devices, onSaved, onCancel }: ProfileFormProps) {
+  const [values, setValues] = useState<FormValues>(() => initialValues(initial, devices));
+  const [createdProfile, setCreatedProfile] = useState<RiderProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -97,6 +109,27 @@ export default function ProfileForm({ initial, onSaved, onCancel }: ProfileFormP
     });
   }
 
+  async function saveDeviceAssignments(profileId: string) {
+    const selections = [
+      { kind: 'trainer' as const, deviceId: values.trainerId },
+      { kind: 'hrm' as const, deviceId: values.hrmId },
+    ];
+    const updates: Array<Promise<ListedDevice>> = [];
+    for (const selection of selections) {
+      const previous =
+        initial === undefined
+          ? undefined
+          : devices.find((device) => device.kind === selection.kind && device.riderId === initial.id);
+      if (previous !== undefined && previous.id !== selection.deviceId) {
+        updates.push(assignDevice(previous.id, null));
+      }
+      if (selection.deviceId !== '' && previous?.id !== selection.deviceId) {
+        updates.push(assignDevice(selection.deviceId, profileId));
+      }
+    }
+    await Promise.all(updates);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -113,7 +146,11 @@ export default function ProfileForm({ initial, onSaved, onCancel }: ProfileFormP
         : result.value;
     setSubmitting(true);
     try {
-      const saved = initial === undefined ? await createProfile(value) : await updateProfile(initial.id, value);
+      const existing = initial ?? createdProfile;
+      const saved =
+        existing === null ? await createProfile(value) : await updateProfile(existing.id, value);
+      if (initial === undefined && createdProfile === null) setCreatedProfile(saved);
+      await saveDeviceAssignments(saved.id);
       onSaved(saved);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -196,6 +233,40 @@ export default function ProfileForm({ initial, onSaved, onCancel }: ProfileFormP
             onChange={(e) => setField('maxHr', e.target.value)}
             placeholder="186"
           />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm text-dim">My trainer</span>
+          <select
+            className={inputClass}
+            value={values.trainerId}
+            onChange={(e) => setField('trainerId', e.target.value)}
+          >
+            <option value="">None</option>
+            {devices
+              .filter((device) => device.kind === 'trainer')
+              .map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name === '' ? 'Unnamed trainer' : device.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm text-dim">My heart rate strap</span>
+          <select
+            className={inputClass}
+            value={values.hrmId}
+            onChange={(e) => setField('hrmId', e.target.value)}
+          >
+            <option value="">None</option>
+            {devices
+              .filter((device) => device.kind === 'hrm')
+              .map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name === '' ? 'Unnamed strap' : device.name}
+                </option>
+              ))}
+          </select>
         </label>
         <label className="block">
           <span className="mb-1 block text-sm text-dim">Garmin email (optional)</span>
