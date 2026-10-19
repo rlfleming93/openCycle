@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from '@fastify/websocket';
 import {
   WsClientMessageSchema,
+  type AdapterState,
+  type DeviceSample,
   type SessionEvent,
   type SessionSnapshot,
   type TelemetrySample,
@@ -9,7 +11,13 @@ import {
   type WsServerMessage,
 } from '@opencycle/shared';
 
-import { HrmDriver, TrainerDriver, type TrainerStatus } from '../devices/driver.js';
+import {
+  HrmDriver,
+  TrainerDriver,
+  type HrmSample,
+  type TrainerSample,
+  type TrainerStatus,
+} from '../devices/driver.js';
 import { sessionDestination } from '../game/voyage.js';
 import type { ApiContext } from './routes.js';
 import { resolveRiderConfigs } from './routes.js';
@@ -78,8 +86,8 @@ export function registerWs(app: FastifyInstance, ctx: ApiContext): void {
     for (const socket of sockets) send(socket, message);
   };
 
-  // deviceStatus: mirror every driver's status event to all sockets, for
-  // already-known drivers and for devices discovered later.
+  // Mirror every driver's status and raw samples, for already-known drivers
+  // and for devices discovered later.
   const statusFrame = (deviceId: string, status: TrainerStatus): WsServerMessage => ({
     type: 'deviceStatus',
     deviceId,
@@ -88,23 +96,67 @@ export function registerWs(app: FastifyInstance, ctx: ApiContext): void {
     ...(status.message ? { message: status.message } : {}),
   });
   const statusSubs: Array<{ driver: TrainerDriver | HrmDriver; handler: (status: TrainerStatus) => void }> = [];
+  const trainerSampleSubs: Array<{ driver: TrainerDriver; handler: (sample: TrainerSample) => void }> = [];
+  const hrmSampleSubs: Array<{ driver: HrmDriver; handler: (sample: HrmSample) => void }> = [];
+  const lastSampleBroadcast = new Map<string, number>();
+  const broadcastSample = (sample: DeviceSample): void => {
+    const now = Date.now();
+    const previous = lastSampleBroadcast.get(sample.deviceId);
+    if (previous !== undefined && now - previous < 1000) return;
+    lastSampleBroadcast.set(sample.deviceId, now);
+    broadcast(sample);
+  };
   const subscribeStatus = (driver: TrainerDriver | HrmDriver): void => {
     const handler = (status: TrainerStatus): void => broadcast(statusFrame(driver.id, status));
     driver.on('status', handler);
     statusSubs.push({ driver, handler });
   };
-  const onTrainerDiscovered = (trainer: TrainerDriver): void => subscribeStatus(trainer);
-  const onHrmDiscovered = (hrm: HrmDriver): void => subscribeStatus(hrm);
-  for (const trainer of ctx.hub.drivers().trainers) subscribeStatus(trainer);
-  for (const hrm of ctx.hub.drivers().hrms) subscribeStatus(hrm);
+  const subscribeTrainer = (driver: TrainerDriver): void => {
+    subscribeStatus(driver);
+    const handler = (sample: TrainerSample): void => {
+      if (sockets.size === 0) return;
+      broadcastSample({
+        type: 'deviceSample',
+        deviceId: driver.id,
+        kind: 'trainer',
+        ts: sample.ts,
+        powerW: sample.powerW,
+        cadenceRpm: sample.cadenceRpm,
+      });
+    };
+    driver.on('sample', handler);
+    trainerSampleSubs.push({ driver, handler });
+  };
+  const subscribeHrm = (driver: HrmDriver): void => {
+    subscribeStatus(driver);
+    const handler = (sample: HrmSample): void => {
+      if (sockets.size === 0) return;
+      broadcastSample({
+        type: 'deviceSample',
+        deviceId: driver.id,
+        kind: 'hrm',
+        ts: sample.ts,
+        hrBpm: sample.bpm,
+      });
+    };
+    driver.on('hr', handler);
+    hrmSampleSubs.push({ driver, handler });
+  };
+  const onTrainerDiscovered = (trainer: TrainerDriver): void => subscribeTrainer(trainer);
+  const onHrmDiscovered = (hrm: HrmDriver): void => subscribeHrm(hrm);
+  const onAdapterState = (state: AdapterState): void => broadcast({ type: 'adapterState', state });
+  for (const trainer of ctx.hub.drivers().trainers) subscribeTrainer(trainer);
+  for (const hrm of ctx.hub.drivers().hrms) subscribeHrm(hrm);
   ctx.hub.on('trainer', onTrainerDiscovered);
   ctx.hub.on('hrm', onHrmDiscovered);
+  ctx.hub.on('adapter', onAdapterState);
 
   app.get('/ws', { websocket: true }, (socket) => {
     sockets.add(socket);
     // Always send an initial sessionState (null included): clients use this
     // frame as the hydration signal before making routing decisions.
     send(socket, { type: 'sessionState', session: ctx.engine.session });
+    send(socket, { type: 'adapterState', state: ctx.hub.adapterState() });
     // Status is event-only: replay each device's last one so late pages are current.
     for (const [deviceId, status] of ctx.hub.lastStatuses()) send(socket, statusFrame(deviceId, status));
 
@@ -152,6 +204,9 @@ export function registerWs(app: FastifyInstance, ctx: ApiContext): void {
   app.addHook('onClose', () => {
     ctx.hub.off('trainer', onTrainerDiscovered);
     ctx.hub.off('hrm', onHrmDiscovered);
+    ctx.hub.off('adapter', onAdapterState);
     for (const { driver, handler } of statusSubs) driver.off('status', handler);
+    for (const { driver, handler } of trainerSampleSubs) driver.off('sample', handler);
+    for (const { driver, handler } of hrmSampleSubs) driver.off('hr', handler);
   });
 }

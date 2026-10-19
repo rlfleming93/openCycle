@@ -28,6 +28,10 @@ interface ProfileFormProps {
   /** Called with the saved profile after the mutation succeeds. */
   onSaved: (profile: RiderProfile) => void;
   onCancel?: () => void;
+  /** Limit the form to the fields needed during first-run setup. */
+  riderOnly?: boolean;
+  submitLabel?: string;
+  cancelLabel?: string;
 }
 
 interface FormValues {
@@ -87,7 +91,15 @@ function validate(values: FormValues): ValidationResult {
   return { ok: false, error: `${FIELD_LABELS[path] ?? (path === '' ? 'Profile' : path)}: ${issue.message}` };
 }
 
-export default function ProfileForm({ initial, devices, onSaved, onCancel }: ProfileFormProps) {
+export default function ProfileForm({
+  initial,
+  devices,
+  onSaved,
+  onCancel,
+  riderOnly = false,
+  submitLabel,
+  cancelLabel = 'Cancel',
+}: ProfileFormProps) {
   const [values, setValues] = useState<FormValues>(() => initialValues(initial, devices));
   const [createdProfile, setCreatedProfile] = useState<RiderProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +194,9 @@ export default function ProfileForm({ initial, devices, onSaved, onCancel }: Pro
             onChange={(e) => setField('ftpW', e.target.value)}
             placeholder="250"
           />
+          <p className="mt-1 text-xs text-dim">
+            Not sure? Start at 2.5 W per kg; you can change it later.
+          </p>
         </label>
         <div className="block">
           <span className="mb-1 block text-sm text-dim">Weight</span>
@@ -208,76 +223,80 @@ export default function ProfileForm({ initial, devices, onSaved, onCancel }: Pro
             </select>
           </div>
         </div>
-        <label className="block">
-          <span className="mb-1 block text-sm text-dim">Resting HR (optional)</span>
-          <input
-            className={inputClass}
-            type="number"
-            min={25}
-            max={100}
-            step={1}
-            value={values.restingHr}
-            onChange={(e) => setField('restingHr', e.target.value)}
-            placeholder="48"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm text-dim">Max HR (optional)</span>
-          <input
-            className={inputClass}
-            type="number"
-            min={120}
-            max={230}
-            step={1}
-            value={values.maxHr}
-            onChange={(e) => setField('maxHr', e.target.value)}
-            placeholder="186"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm text-dim">My trainer</span>
-          <select
-            className={inputClass}
-            value={values.trainerId}
-            onChange={(e) => setField('trainerId', e.target.value)}
-          >
-            <option value="">None</option>
-            {devices
-              .filter((device) => device.kind === 'trainer')
-              .map((device) => (
-                <option key={device.id} value={device.id}>
-                  {device.name === '' ? 'Unnamed trainer' : device.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm text-dim">My heart rate strap</span>
-          <select
-            className={inputClass}
-            value={values.hrmId}
-            onChange={(e) => setField('hrmId', e.target.value)}
-          >
-            <option value="">None</option>
-            {devices
-              .filter((device) => device.kind === 'hrm')
-              .map((device) => (
-                <option key={device.id} value={device.id}>
-                  {device.name === '' ? 'Unnamed strap' : device.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm text-dim">Garmin email (optional)</span>
-          <input
-            className={inputClass}
-            type="email"
-            value={values.garminEmail}
-            onChange={(e) => setField('garminEmail', e.target.value)}
-            placeholder="rider@example.com"
-          />
-        </label>
+        {!riderOnly && (
+          <>
+            <label className="block">
+              <span className="mb-1 block text-sm text-dim">Resting HR (optional)</span>
+              <input
+                className={inputClass}
+                type="number"
+                min={25}
+                max={100}
+                step={1}
+                value={values.restingHr}
+                onChange={(e) => setField('restingHr', e.target.value)}
+                placeholder="48"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm text-dim">Max HR (optional)</span>
+              <input
+                className={inputClass}
+                type="number"
+                min={120}
+                max={230}
+                step={1}
+                value={values.maxHr}
+                onChange={(e) => setField('maxHr', e.target.value)}
+                placeholder="186"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm text-dim">My trainer</span>
+              <select
+                className={inputClass}
+                value={values.trainerId}
+                onChange={(e) => setField('trainerId', e.target.value)}
+              >
+                <option value="">None</option>
+                {devices
+                  .filter((device) => device.kind === 'trainer')
+                  .map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {device.name === '' ? 'Unnamed trainer' : device.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm text-dim">My heart rate strap</span>
+              <select
+                className={inputClass}
+                value={values.hrmId}
+                onChange={(e) => setField('hrmId', e.target.value)}
+              >
+                <option value="">None</option>
+                {devices
+                  .filter((device) => device.kind === 'hrm')
+                  .map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {device.name === '' ? 'Unnamed strap' : device.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm text-dim">Garmin email (optional)</span>
+              <input
+                className={inputClass}
+                type="email"
+                value={values.garminEmail}
+                onChange={(e) => setField('garminEmail', e.target.value)}
+                placeholder="rider@example.com"
+              />
+            </label>
+          </>
+        )}
       </div>
 
       {error !== null && <p className="text-sm text-danger">{error}</p>}
@@ -288,7 +307,9 @@ export default function ProfileForm({ initial, devices, onSaved, onCancel }: Pro
           disabled={submitting}
           className="rounded-[8px] bg-on px-4 py-2 font-medium text-void hover:bg-on/85 disabled:opacity-50"
         >
-          {submitting ? 'Saving…' : initial === undefined ? 'Create profile' : 'Save changes'}
+          {submitting
+            ? 'Saving…'
+            : (submitLabel ?? (initial === undefined ? 'Create profile' : 'Save changes'))}
         </button>
         {onCancel !== undefined && (
           <button
@@ -296,7 +317,7 @@ export default function ProfileForm({ initial, devices, onSaved, onCancel }: Pro
             onClick={onCancel}
             className="rounded-[8px] border border-line px-4 py-2 text-ink/90 hover:bg-ink/5"
           >
-            Cancel
+            {cancelLabel}
           </button>
         )}
       </div>

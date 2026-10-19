@@ -122,8 +122,10 @@ class FakeNoble extends EventEmitter {
   state = 'poweredOn';
   scanning: string[] | null = null;
   allowDuplicates: boolean | null = null;
+  scanStarts = 0;
 
   async startScanningAsync(serviceUUIDs: string[], allowDuplicates: boolean): Promise<void> {
+    this.scanStarts += 1;
     this.scanning = serviceUUIDs;
     this.allowDuplicates = allowDuplicates;
   }
@@ -568,17 +570,26 @@ describe('BleManager', () => {
     expect(states).toEqual(['scanning', 'idle']);
   });
 
-  it('waits for the adapter to power on before scanning', async () => {
+  it('reports an unauthorized adapter and scans once when it later powers on', async () => {
     const noble = new FakeNoble();
-    noble.state = 'poweredOff';
+    noble.state = 'unauthorized';
     const manager = new BleManager({ noble: noble as unknown as Noble });
-    const scanPromise = manager.startScan();
-    await tick();
-    expect(noble.scanning).toBeNull();
+    const adapters: string[] = [];
+    manager.on('adapter', (state) => adapters.push(state));
+
+    await expect(manager.startScan()).resolves.toBeUndefined();
+    expect(manager.adapterState()).toBe('unauthorized');
+    expect(noble.scanStarts).toBe(0);
+
     noble.state = 'poweredOn';
     noble.emit('stateChange', 'poweredOn');
-    await scanPromise;
+    await tick();
+    noble.emit('stateChange', 'poweredOn');
+    await tick();
+
+    expect(adapters).toEqual(['poweredOn', 'poweredOn']);
     expect(noble.scanning).toEqual(['1826', '180d']);
+    expect(noble.scanStarts).toBe(1);
   });
 
   it('classifies devices and emits each driver once per peripheral id', async () => {

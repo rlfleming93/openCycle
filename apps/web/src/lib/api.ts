@@ -1,5 +1,8 @@
+import { AdapterStateSchema, GarminLoginStatusSchema } from '@opencycle/shared';
 import type {
+  AdapterState,
   DeviceInfo,
+  GarminLoginStatus,
   RiderProfile,
   RiderStart,
   SessionSnapshot,
@@ -59,6 +62,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+export async function getBleState(): Promise<{ state: AdapterState }> {
+  const body = await request<{ state?: unknown }>('/api/ble');
+  return { state: AdapterStateSchema.parse(body.state) };
 }
 
 export function listProfiles(): Promise<RiderProfile[]> {
@@ -167,6 +175,24 @@ export interface ActivityListItem {
 export function listActivities(riderId?: string): Promise<ActivityListItem[]> {
   const query = riderId === undefined ? '' : `?riderId=${encodeURIComponent(riderId)}`;
   return request(`/api/activities${query}`);
+}
+
+export async function startGarminLogin(
+  riderId: string,
+): Promise<{ state: 'installing' | 'running' }> {
+  const body = await request<{ state?: unknown }>(
+    `/api/garmin/login/${encodeURIComponent(riderId)}`,
+    { method: 'POST' },
+  );
+  if (body.state !== 'installing' && body.state !== 'running') {
+    throw new Error('Invalid Garmin login response');
+  }
+  return { state: body.state };
+}
+
+export async function getGarminLogin(riderId: string): Promise<GarminLoginStatus> {
+  const body = await request<unknown>(`/api/garmin/login/${encodeURIComponent(riderId)}`);
+  return GarminLoginStatusSchema.parse(body);
 }
 
 /** Result of a Garmin ZIP/FIT import as served by POST /api/garmin/import-zip. */

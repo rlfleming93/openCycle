@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type {
+  AdapterState,
+  DeviceSample,
   SessionEvent,
   SessionSnapshot,
   TelemetrySample,
@@ -43,6 +45,10 @@ export interface AppState {
   deviceStatus: Record<string, string>;
   /** deviceId -> last driver status message. */
   deviceStatusMessage: Record<string, string | undefined>;
+  /** Current Bluetooth adapter state reported by the server. */
+  adapterState: AdapterState;
+  /** deviceId -> latest live sample, independent of session state. */
+  deviceSamples: Record<string, DeviceSample | undefined>;
   /** Last server `error` frame message, additive to the frozen contract. */
   lastError: string | null;
   /**
@@ -72,6 +78,8 @@ export const useAppStore = create<AppState>()((set) => ({
   events: [],
   deviceStatus: {},
   deviceStatusMessage: {},
+  adapterState: 'unknown',
+  deviceSamples: {},
   lastError: null,
   hydrated: false,
   spaceGame: loadSpaceGame(),
@@ -134,6 +142,16 @@ export const useAppStore = create<AppState>()((set) => ({
           }
           return { session: snapshot, telemetry, hydrated: true };
         });
+        break;
+      }
+      case 'adapterState': {
+        set({ adapterState: msg.state });
+        break;
+      }
+      case 'deviceSample': {
+        set((state) => ({
+          deviceSamples: { ...state.deviceSamples, [msg.deviceId]: msg },
+        }));
         break;
       }
       case 'deviceStatus': {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { RiderProfile } from '@opencycle/shared';
 
+import GarminConnect from '../components/GarminConnect.js';
 import ProfileForm from '../components/ProfileForm.js';
 import {
   deleteProfile,
@@ -238,7 +239,8 @@ export default function ProfilesPage() {
                     <DeviceAssignment label="Heart rate strap" device={hrm} status={deviceStatus[hrm.id]} />
                   )}
                 </dl>
-                <div className="mt-4 border-t border-line pt-3">
+                <div className="mt-4 space-y-3 border-t border-line pt-3">
+                  <GarminConnect riderId={p.id} />
                   {estimates[p.id] === undefined ? (
                     <button
                       onClick={() => void handleEstimate(p)}

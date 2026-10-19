@@ -83,6 +83,7 @@ export default function SessionBuilderPage() {
   const [starting, setStarting] = useState(false);
   const [uploadingKey, setUploadingKey] = useState<number | null>(null);
   const [lastImport, setLastImport] = useState<{ key: number; name: string } | null>(null);
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +92,7 @@ export default function SessionBuilderPage() {
         const [ps, ds, ws] = await Promise.all([listProfiles(), listDevices(), listWorkouts()]);
         if (cancelled) return;
         setProfiles(ps);
+        setProfilesLoaded(true);
         setDevices(ds);
         setWorkouts(ws);
         setError(null);
@@ -350,6 +352,16 @@ export default function SessionBuilderPage() {
 
       {error !== null && (
         <p className="mb-4 rounded-[8px] border border-danger/40 bg-danger/10 px-4 py-2 text-sm text-danger">{error}</p>
+      )}
+
+      {profilesLoaded && profiles.length === 0 && (
+        <div className="mb-6 rounded-[8px] border border-under/40 bg-under/10 px-4 py-3 text-sm text-under">
+          No riders are set up yet.{' '}
+          <Link to="/welcome" className="font-medium underline hover:text-ink">
+            Set up a rider
+          </Link>{' '}
+          before you start a session.
+        </div>
       )}
 
       {trainers.length === 0 && (

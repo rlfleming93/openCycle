@@ -61,13 +61,15 @@ pnpm app
 
 This builds `openCycle.app` into `~/Applications`. Open it and allow Bluetooth once when macOS asks. It starts the server, opens the browser and puts an openCycle item in the menu bar with Open, Show logs and Quit.
 
+The first time, a short setup walks you through it: Bluetooth, your rider (FTP and weight in kg or lb), then your trainer and strap. Each device shows live watts, cadence or heart rate before you move on. If macOS hasn't given openCycle Bluetooth yet, the app stays up and shows a banner with a link to the right System Settings page.
+
 A few things worth knowing:
 
 - Quitting finishes any ride in progress first, so the FIT file is saved.
 - Logs are in `~/Library/Logs/openCycle/server.log`. If the server crashes, the app shows the last lines.
 - The app runs the code from this folder. After you pull changes, run `pnpm app` again. If you move the folder, rebuild.
 - Each rebuild re-signs the app, so macOS might ask for Bluetooth again. Say yes and it sticks.
-- To run a one-off command with the app's Bluetooth permission, like the Garmin login: `open -a openCycle --args --exec "pnpm garmin:login --rider <id>"`.
+- To run a one-off command with the app's Bluetooth permission: `open -a openCycle --args --exec "<command>"`.
 
 `pnpm app` options: `--sim` (simulator, no Bluetooth), `--out <dir>`, `--data-dir <path>`, `--no-build`.
 
@@ -139,13 +141,9 @@ ln -s "$(pwd)/skills/workout-author" ~/.claude/skills/workout-author
 
 **Uploading rides.** Finished rides upload to Garmin Connect on their own when the rider's profile has auto-upload on and a saved login exists. If an upload fails, History shows the reason and a retry button. Garmin changes their login flow without warning, and when they do, uploads fail until this part gets fixed. It's kept separate so nothing else breaks with it.
 
-Log in once per rider:
+Log in once per rider: press **Connect Garmin** on the rider's profile (or on the last setup step). A browser opens. Sign in and do the MFA by hand. The first time, openCycle downloads the browser it uses for this, which takes a minute. The login is saved to `~/.opencycle/garmin/<riderId>.json`, never the database, and profiles don't store passwords. Connecting again replaces it.
 
-```bash
-pnpm garmin:login --rider <profile-id>
-```
-
-A browser opens. Sign in and do the MFA by hand. The login is saved to `~/.opencycle/garmin/<riderId>.json`, never the database, and profiles don't store passwords. Running it again replaces it.
+The same login also works from a terminal: `pnpm garmin:login --rider <profile-id>`.
 
 ## Credits
 
