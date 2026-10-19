@@ -26,10 +26,18 @@ The game only reads the trainer and the workout. It never changes your targets, 
 
 ![The Voyage page star map](docs/media/voyage.webp)
 
+## On the bike
+
+- **Cadence and torque.** In ERG the watts stay put, so the ride screen shows cadence on a dial (green from 80 to 100 rpm) and torque per pedal stroke in Nm. Spin faster and the torque bar drops.
+- **Your own devices.** Each profile picks its trainer and heart rate strap, and you can rename devices ("Sam's KICKR" beats "KICKR CORE 1A2B"). Pick the rider in Session and both fill in, with a live Connected chip.
+- **Dropouts pause the ride.** If the trainer drops, the ride pauses with a red banner and picks up again when the trainer is back. No fake zeros go into the FIT file.
+- **Power numbers.** Normalized power uses the standard 30-second method. The FIT file carries normalized power, IF, TSS, total work and average cadence.
+- **Weight in kg or lb.**
+
 ## Hardware
 
 - **Trainer:** I've only tested it on my own Wahoo KICKR CORE, over Bluetooth FTMS ERG. Other FTMS trainers might work. I just haven't tried one.
-- **Heart rate:** any Bluetooth strap that uses the standard Heart Rate Service.
+- **Heart rate:** any Bluetooth strap that uses the standard Heart Rate Service. A Garmin HRM 200 only bonds in pairing mode: hold its button for 4 seconds the first time.
 - **Computer:** macOS and Node 24. The Bluetooth library is a native addon, so the server needs Node. Bun won't run it.
 
 ## Try it
@@ -89,7 +97,7 @@ The server listens on your whole network, so a TV or tablet can show the ride at
 
 > **There's no login.** Anyone who can reach the server can start sessions, change profiles and read ride data. Run it on a home network you trust. Don't put it on the internet.
 
-Rides and profiles live in `~/.opencycle`. Set `OPENCYCLE_DATA_DIR` to put them somewhere else.
+Rides and profiles live in `~/.opencycle`. Set `OPENCYCLE_DATA_DIR` to put them somewhere else. `OPENCYCLE_PORT` moves the server off 4000, which lets a simulator copy run next to the real app.
 
 ## What's in the repo
 
