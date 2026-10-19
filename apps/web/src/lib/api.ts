@@ -89,6 +89,15 @@ export function assignDevice(deviceId: string, riderId: string | null): Promise<
   });
 }
 
+/** Set a device's display label; null restores the advertised name. */
+export function labelDevice(deviceId: string, label: string | null): Promise<ListedDevice> {
+  return request(`/api/devices/${deviceId}/label`, {
+    method: 'PUT',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ label }),
+  });
+}
+
 export function forgetDevice(deviceId: string): Promise<void> {
   return request(`/api/devices/${deviceId}`, { method: 'DELETE' });
 }

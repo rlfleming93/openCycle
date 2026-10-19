@@ -146,6 +146,11 @@ export const MIGRATIONS: string[] = [
 
   DELETE FROM discoveries WHERE kind = 'planet';
   `,
+  // Migration 7: a user label per device. Discovery keeps overwriting `name`
+  // with the advertised name, so the label lives in its own column.
+  `
+  ALTER TABLE devices ADD COLUMN label TEXT;
+  `,
 ];
 
 /** Opens (creating if needed) the openCycle SQLite database and migrates it to the latest schema. */

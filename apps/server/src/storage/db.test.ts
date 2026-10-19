@@ -54,7 +54,7 @@ describe('openDb', () => {
       const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
       return rows.map((row) => row.name);
     };
-    expect(columns('devices')).toEqual(['id', 'kind', 'name', 'last_seen', 'rider_id']);
+    expect(columns('devices')).toEqual(['id', 'kind', 'name', 'last_seen', 'rider_id', 'label']);
     expect(columns('rides')).toEqual([
       'id',
       'session_id',
@@ -106,7 +106,7 @@ describe('openDb', () => {
 
   it('tracks applied migrations in user_version', () => {
     const db = openDb(':memory:');
-    expect(Number(db.pragma('user_version', { simple: true }))).toBe(6);
+    expect(Number(db.pragma('user_version', { simple: true }))).toBe(MIGRATIONS.length);
     db.close();
   });
 
@@ -115,11 +115,11 @@ describe('openDb', () => {
     const first = openDb(path);
     first.close();
     const second = openDb(path);
-    expect(Number(second.pragma('user_version', { simple: true }))).toBe(6);
+    expect(Number(second.pragma('user_version', { simple: true }))).toBe(MIGRATIONS.length);
     second.close();
   });
 
-  it('upgrades a real v1 database (migration 1 only) to v6 with workouts, upload columns, discoveries and voyages', () => {
+  it('upgrades a real v1 database (migration 1 only) to the latest with workouts, upload columns, discoveries and voyages', () => {
     const path = tempDbPath();
     // Build an authentic v1 database: migration 1 only, user_version = 1.
     const v1 = new Database(path);
@@ -128,7 +128,7 @@ describe('openDb', () => {
     v1.close();
 
     const db = openDb(path);
-    expect(Number(db.pragma('user_version', { simple: true }))).toBe(6);
+    expect(Number(db.pragma('user_version', { simple: true }))).toBe(MIGRATIONS.length);
     const workouts = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workouts'")
       .get();
@@ -180,7 +180,7 @@ describe('openDb', () => {
     v5.close();
 
     const db = openDb(path);
-    expect(Number(db.pragma('user_version', { simple: true }))).toBe(6);
+    expect(Number(db.pragma('user_version', { simple: true }))).toBe(MIGRATIONS.length);
     const rows = db
       .prepare(
         `SELECT id, rider_id AS riderId, session_id AS sessionId, voyage_index AS voyageIndex,

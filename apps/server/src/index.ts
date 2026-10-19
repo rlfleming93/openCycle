@@ -54,6 +54,8 @@ hub.on('trainer', (trainer) => {
 });
 hub.on('hrm', (hrm) => {
   app.log.info({ id: hrm.id, name: hrm.name }, 'hrm discovered');
+  // Reconnect failures only surface as status events; log them with their reason.
+  hrm.on('status', (status) => app.log.info({ id: hrm.id, status }, 'hrm status'));
   void hrm.connect().catch((err: unknown) => {
     app.log.warn({ err, id: hrm.id }, 'hrm connect failed');
   });

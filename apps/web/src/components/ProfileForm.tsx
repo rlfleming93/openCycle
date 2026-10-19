@@ -7,6 +7,8 @@ import { createProfile, updateProfile } from '../lib/api.js';
 
 const ProfileInputSchema = RiderProfileSchema.omit({ id: true });
 
+const KG_PER_LB = 0.45359237;
+
 const FIELD_LABELS: Record<string, string> = {
   name: 'Name',
   ftpW: 'FTP',
@@ -30,7 +32,8 @@ interface ProfileFormProps {
 interface FormValues {
   name: string;
   ftpW: string;
-  weightKg: string;
+  weight: string;
+  weightUnit: 'kg' | 'lb';
   restingHr: string;
   maxHr: string;
   garminEmail: string;
@@ -44,7 +47,8 @@ function initialValues(initial?: RiderProfile): FormValues {
   return {
     name: initial?.name ?? '',
     ftpW: initial === undefined ? '' : String(initial.ftpW),
-    weightKg: initial === undefined ? '' : String(initial.weightKg),
+    weight: initial === undefined ? '' : String(initial.weightKg),
+    weightUnit: 'kg',
     restingHr: initial?.restingHr === undefined ? '' : String(initial.restingHr),
     maxHr: initial?.maxHr === undefined ? '' : String(initial.maxHr),
     garminEmail: initial?.garmin?.email ?? '',
@@ -54,11 +58,12 @@ function initialValues(initial?: RiderProfile): FormValues {
 function validate(values: FormValues): ValidationResult {
   if (values.name.trim() === '') return { ok: false, error: 'Name is required' };
   if (values.ftpW.trim() === '') return { ok: false, error: 'FTP is required' };
-  if (values.weightKg.trim() === '') return { ok: false, error: 'Weight is required' };
+  if (values.weight.trim() === '') return { ok: false, error: 'Weight is required' };
+  const weight = Number(values.weight);
   const candidate = {
     name: values.name.trim(),
     ftpW: Number(values.ftpW),
-    weightKg: Number(values.weightKg),
+    weightKg: values.weightUnit === 'lb' ? Math.round(weight * KG_PER_LB * 10) / 10 : weight,
     ...(values.restingHr.trim() === '' ? {} : { restingHr: Number(values.restingHr) }),
     ...(values.maxHr.trim() === '' ? {} : { maxHr: Number(values.maxHr) }),
     ...(values.garminEmail.trim() === '' ? {} : { garmin: { email: values.garminEmail.trim() } }),
@@ -80,6 +85,18 @@ export default function ProfileForm({ initial, onSaved, onCancel }: ProfileFormP
     setValues((v) => ({ ...v, [field]: value }));
   }
 
+  /** Switch units and convert the typed number so the weight itself does not change. */
+  function setWeightUnit(unit: 'kg' | 'lb') {
+    setValues((v) => {
+      if (unit === v.weightUnit) return v;
+      const n = Number(v.weight);
+      if (v.weight.trim() === '' || !Number.isFinite(n)) return { ...v, weightUnit: unit };
+      // Pounds as whole numbers, kilograms to 0.1, so kg -> lb -> kg does not drift.
+      const converted = unit === 'lb' ? Math.round(n / KG_PER_LB) : Math.round(n * KG_PER_LB * 10) / 10;
+      return { ...v, weightUnit: unit, weight: String(converted) };
+    });
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -88,10 +105,15 @@ export default function ProfileForm({ initial, onSaved, onCancel }: ProfileFormP
       setError(result.error);
       return;
     }
+    // The form has no auto-upload switch; keep the saved setting while the Garmin email stays.
+    const autoUpload = initial?.garmin?.autoUpload;
+    const value =
+      autoUpload !== undefined && result.value.garmin !== undefined
+        ? { ...result.value, garmin: { ...result.value.garmin, autoUpload } }
+        : result.value;
     setSubmitting(true);
     try {
-      const saved =
-        initial === undefined ? await createProfile(result.value) : await updateProfile(initial.id, result.value);
+      const saved = initial === undefined ? await createProfile(value) : await updateProfile(initial.id, value);
       onSaved(saved);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -124,19 +146,31 @@ export default function ProfileForm({ initial, onSaved, onCancel }: ProfileFormP
             placeholder="250"
           />
         </label>
-        <label className="block">
-          <span className="mb-1 block text-sm text-dim">Weight (kg)</span>
-          <input
-            className={inputClass}
-            type="number"
-            min={30}
-            max={200}
-            step={0.5}
-            value={values.weightKg}
-            onChange={(e) => setField('weightKg', e.target.value)}
-            placeholder="75"
-          />
-        </label>
+        <div className="block">
+          <span className="mb-1 block text-sm text-dim">Weight</span>
+          <div className="flex gap-2">
+            <input
+              className={inputClass}
+              type="number"
+              aria-label="Weight"
+              min={values.weightUnit === 'lb' ? 66 : 30}
+              max={values.weightUnit === 'lb' ? 440 : 200}
+              step={values.weightUnit === 'lb' ? 1 : 0.5}
+              value={values.weight}
+              onChange={(e) => setField('weight', e.target.value)}
+              placeholder={values.weightUnit === 'lb' ? '165' : '75'}
+            />
+            <select
+              className="rounded-[8px] border border-line bg-deep px-2 py-2 text-ink focus:border-on focus:outline-none"
+              aria-label="Weight unit"
+              value={values.weightUnit}
+              onChange={(e) => setWeightUnit(e.target.value as 'kg' | 'lb')}
+            >
+              <option value="kg">kg</option>
+              <option value="lb">lb</option>
+            </select>
+          </div>
+        </div>
         <label className="block">
           <span className="mb-1 block text-sm text-dim">Resting HR (optional)</span>
           <input
