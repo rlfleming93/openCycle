@@ -3,79 +3,107 @@
 // (CoreBluetooth); a fake noble can be injected for tests.
 
 import { EventEmitter } from 'node:events';
-import noble, { type Noble, type Peripheral } from '@stoprocent/noble';
+import noble, { type AdapterState as NobleAdapterState, type Noble, type Peripheral } from '@stoprocent/noble';
 import { HrmDriver, TrainerDriver } from '../driver.js';
 import { FTMS_SERVICE_UUID } from './ftms.js';
 import { HRS_SERVICE_UUID } from './hrs.js';
 import { BleHrmDriver, BleTrainerDriver, isUuid } from './trainer.js';
 
 const SCAN_SERVICE_UUIDS = [FTMS_SERVICE_UUID, HRS_SERVICE_UUID];
-const POWER_ON_TIMEOUT_MS = 30_000;
 
 export interface BleManagerEvents {
   trainer: [TrainerDriver];
   hrm: [HrmDriver];
+  adapter: [NobleAdapterState];
   state: [string];
 }
 
 export class BleManager extends EventEmitter<BleManagerEvents> {
   private readonly noble: Noble;
   private readonly drivers = new Map<string, TrainerDriver | HrmDriver>();
+  private adapter: NobleAdapterState;
   private scanning = false;
+  private scanRequested = false;
+  private scanStart: Promise<void> | undefined;
+  private restartAfterStart = false;
 
   constructor(opts?: { noble?: Noble }) {
     super();
     this.noble = opts?.noble ?? noble;
+    this.adapter = this.noble.state;
     this.noble.on('discover', this.handleDiscover);
+    this.noble.on('stateChange', this.handleStateChange);
   }
 
-  /** Release the noble listener and stop scanning; idempotent. */
+  adapterState(): NobleAdapterState {
+    return this.adapter;
+  }
+
+  /** Release the noble listeners and stop scanning; idempotent. */
   async dispose(): Promise<void> {
     this.noble.off('discover', this.handleDiscover);
-    if (this.scanning) {
-      this.scanning = false;
-      this.emit('state', 'idle');
-    }
+    this.noble.off('stateChange', this.handleStateChange);
     try {
-      await this.noble.stopScanningAsync();
+      await this.stopScan();
     } catch {
       // Best effort: a stopScan failure must not block shutdown.
     }
   }
 
-  /** Scan for FTMS trainers and HRM straps (no duplicate advertisements). */
+  /** Request FTMS + HRS scanning now or when the adapter becomes available. */
   async startScan(): Promise<void> {
-    if (this.scanning) return;
-    await this.waitForPoweredOn();
-    await this.noble.startScanningAsync(SCAN_SERVICE_UUIDS, false);
-    this.scanning = true;
-    this.emit('state', 'scanning');
+    this.scanRequested = true;
+    if (this.adapter !== 'poweredOn') return;
+    await this.ensureScanning();
   }
 
   async stopScan(): Promise<void> {
+    this.scanRequested = false;
+    if (this.scanStart !== undefined) await this.scanStart.catch(() => {});
     if (!this.scanning) return;
     await this.noble.stopScanningAsync();
     this.scanning = false;
     this.emit('state', 'idle');
   }
 
-  private async waitForPoweredOn(): Promise<void> {
-    if (this.noble.state === 'poweredOn') return;
-    await new Promise<void>((resolve, reject) => {
-      let timer: ReturnType<typeof setTimeout>;
-      const onState = (state: string): void => {
-        if (state !== 'poweredOn') return;
-        clearTimeout(timer);
-        this.noble.off('stateChange', onState);
-        resolve();
-      };
-      timer = setTimeout(() => {
-        this.noble.off('stateChange', onState);
-        reject(new Error('BLE adapter did not power on within 30 s'));
-      }, POWER_ON_TIMEOUT_MS);
-      this.noble.on('stateChange', onState);
+  private ensureScanning(): Promise<void> {
+    if (this.scanning) return Promise.resolve();
+    if (this.scanStart !== undefined) return this.scanStart;
+    const pending: Promise<void> = this.startScanning().finally(() => {
+      if (this.scanStart === pending) this.scanStart = undefined;
+      const restart = this.restartAfterStart;
+      this.restartAfterStart = false;
+      if (restart && this.scanRequested && this.adapter === 'poweredOn') {
+        void this.ensureScanning().catch(() => {});
+      }
     });
+    this.scanStart = pending;
+    return pending;
   }
+
+  private async startScanning(): Promise<void> {
+    await this.noble.startScanningAsync(SCAN_SERVICE_UUIDS, false);
+    if (this.restartAfterStart || !this.scanRequested || this.adapter !== 'poweredOn') {
+      await this.noble.stopScanningAsync().catch(() => {});
+      return;
+    }
+    this.scanning = true;
+    this.emit('state', 'scanning');
+  }
+
+  private readonly handleStateChange = (state: NobleAdapterState): void => {
+    this.adapter = state;
+    this.emit('adapter', state);
+    if (state === 'poweredOn') {
+      if (this.scanRequested) void this.ensureScanning().catch(() => {});
+      return;
+    }
+    if (this.scanStart !== undefined) this.restartAfterStart = true;
+    if (this.scanning) {
+      this.scanning = false;
+      this.emit('state', 'idle');
+    }
+  };
 
   /** Emit at most one driver instance per discovered peripheral id. */
   private readonly handleDiscover = (peripheral: Peripheral): void => {

@@ -78,9 +78,37 @@ export const SessionSnapshotSchema = z.object({
 
 export type SessionDestination = NonNullable<z.infer<typeof SessionSnapshotSchema>['destination']>;
 
+export const AdapterStateSchema = z.enum([
+  'poweredOn',
+  'poweredOff',
+  'unauthorized',
+  'unsupported',
+  'unknown',
+  'resetting',
+  'disabled',
+]);
+
+export const DeviceSampleSchema = z.object({
+  type: z.literal('deviceSample'),
+  deviceId: z.string().min(1),
+  kind: DeviceKindSchema,
+  ts: z.number().int().positive(),
+  powerW: z.number().nonnegative().optional(),
+  cadenceRpm: z.number().nonnegative().optional(),
+  hrBpm: z.number().min(20).max(250).optional(),
+});
+
+export const GarminLoginStatusSchema = z.object({
+  hasLogin: z.boolean(),
+  state: z.enum(['idle', 'installing', 'running', 'failed']),
+  error: z.string().min(1).optional(),
+});
+
 /** Server → client WS payloads. */
 export const WsServerMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('telemetry'), samples: z.array(TelemetrySampleSchema) }),
+  z.object({ type: z.literal('adapterState'), state: AdapterStateSchema }),
+  DeviceSampleSchema,
   z.object({ type: z.literal('sessionEvent'), event: SessionEventSchema }),
   z.object({
     type: z.literal('deviceStatus'),
@@ -111,3 +139,6 @@ export type RiderStart = z.infer<typeof RiderStartSchema>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;
 export type WsServerMessage = z.infer<typeof WsServerMessageSchema>;
 export type WsClientMessage = z.infer<typeof WsClientMessageSchema>;
+export type AdapterState = z.infer<typeof AdapterStateSchema>;
+export type DeviceSample = z.infer<typeof DeviceSampleSchema>;
+export type GarminLoginStatus = z.infer<typeof GarminLoginStatusSchema>;

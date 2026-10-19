@@ -440,13 +440,22 @@ describe('WS /ws endpoint', () => {
     return messages;
   }
 
-  it('sends no messages when no session is running', async () => {
+  it('broadcasts live device samples when no session is running', async () => {
     const world = await buildWorld();
     const ws = await world.app.injectWS('/ws');
     try {
       const messages = collect(world, ws);
-      await sleep(200);
-      expect(messages).toEqual([]);
+      await waitFor(
+        () => messages.filter((message) => message.type === 'deviceSample').length >= 2,
+        3000,
+      );
+      const samples = messages.filter((message) => message.type === 'deviceSample');
+      expect(samples).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: 'trainer', powerW: expect.any(Number), cadenceRpm: expect.any(Number) }),
+          expect.objectContaining({ kind: 'hrm', hrBpm: expect.any(Number) }),
+        ]),
+      );
     } finally {
       ws.close();
       await destroyWorld(world);

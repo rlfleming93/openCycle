@@ -77,6 +77,10 @@ describe('WsServerMessageSchema', () => {
     ['rejects a telemetry batch with a missing riderId', { type: 'telemetry', samples: [{ ...sample, riderId: undefined }] }, false],
     ['rejects a telemetry batch that is not an array', { type: 'telemetry', samples: sample }, false],
 
+    ['accepts adapterState', { type: 'adapterState', state: 'unauthorized' }, true],
+    ['accepts a trainer deviceSample', { type: 'deviceSample', deviceId: 't1', kind: 'trainer', ts: 1_700_000_000_000, powerW: 200, cadenceRpm: 90 }, true],
+    ['accepts an HRM deviceSample', { type: 'deviceSample', deviceId: 'h1', kind: 'hrm', ts: 1_700_000_000_000, hrBpm: 150 }, true],
+
     ['accepts stepCompleted', { type: 'sessionEvent', event: { kind: 'stepCompleted', riderId: 'r1', stepIndex: 0, ts: 1000 } }, true],
     ['accepts workoutCompleted', { type: 'sessionEvent', event: { kind: 'workoutCompleted', riderId: 'r1', ts: 1000 } }, true],
     ['accepts bothInZone', { type: 'sessionEvent', event: { kind: 'bothInZone', ts: 1000, streakS: 30 } }, true],

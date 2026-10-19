@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import type { AdapterState } from '@opencycle/shared';
 import { BleManager } from './ble/manager.js';
 import { createSimDevices } from './sim/index.js';
 import type { DeviceRegistry } from './registry.js';
@@ -8,13 +9,18 @@ import type { HrmDriver, TrainerDriver, TrainerStatus } from './driver.js';
  * Facade over all device sources (sim + BLE). Emits a driver instance once per
  * discovered device and persists every discovery to the registry.
  */
-export class DeviceHub extends EventEmitter<{ trainer: [TrainerDriver]; hrm: [HrmDriver] }> {
+export class DeviceHub extends EventEmitter<{
+  trainer: [TrainerDriver];
+  hrm: [HrmDriver];
+  adapter: [AdapterState];
+}> {
   private readonly registry: DeviceRegistry;
   private readonly sim: string | undefined;
   private readonly ble: boolean;
   private readonly trainerDrivers = new Set<TrainerDriver>();
   private readonly hrmDrivers = new Set<HrmDriver>();
   private bleManager: BleManager | undefined;
+  private adapter: AdapterState;
   // Status is event-only and drivers emit before later listeners attach, so the
   // hub records it from registration on for late subscribers (new sockets).
   private readonly statuses = new Map<string, TrainerStatus>();
@@ -24,6 +30,7 @@ export class DeviceHub extends EventEmitter<{ trainer: [TrainerDriver]; hrm: [Hr
     this.registry = opts.registry;
     this.sim = opts.sim;
     this.ble = opts.ble !== false;
+    this.adapter = this.ble ? 'unknown' : 'disabled';
   }
 
   async start(): Promise<void> {
@@ -33,10 +40,20 @@ export class DeviceHub extends EventEmitter<{ trainer: [TrainerDriver]; hrm: [Hr
       for (const hrm of sim.hrms) this.registerHrm(hrm);
     }
     if (this.ble) {
-      this.bleManager = new BleManager();
-      this.bleManager.on('trainer', (trainer) => this.registerTrainer(trainer));
-      this.bleManager.on('hrm', (hrm) => this.registerHrm(hrm));
-      await this.bleManager.startScan();
+      try {
+        const manager = new BleManager();
+        this.bleManager = manager;
+        manager.on('trainer', (trainer) => this.registerTrainer(trainer));
+        manager.on('hrm', (hrm) => this.registerHrm(hrm));
+        manager.on('adapter', (state) => {
+          this.adapter = state;
+          this.emit('adapter', state);
+        });
+        this.adapter = manager.adapterState();
+        void manager.startScan().catch(() => {});
+      } catch {
+        // BLE availability must not prevent the HTTP server or sim devices.
+      }
     }
   }
 
@@ -66,6 +83,10 @@ export class DeviceHub extends EventEmitter<{ trainer: [TrainerDriver]; hrm: [Hr
   /** Last status each driver reported, keyed by device id. */
   lastStatuses(): ReadonlyMap<string, TrainerStatus> {
     return this.statuses;
+  }
+
+  adapterState(): AdapterState {
+    return this.adapter;
   }
 
   find(id: string): TrainerDriver | HrmDriver | undefined {

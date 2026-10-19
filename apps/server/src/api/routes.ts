@@ -214,6 +214,7 @@ function listProfiles(db: Db): RiderProfile[] {
 
 function registerDeviceRoutes(app: FastifyInstance, ctx: ApiContext): void {
   app.get('/api/devices', async () => ctx.registry.list());
+  app.get('/api/ble', async () => ({ state: ctx.hub.adapterState() }));
 
   app.post('/api/devices/:id/assign', async (req, reply) => {
     const { id } = parseOr400(IdParamSchema, req.params);

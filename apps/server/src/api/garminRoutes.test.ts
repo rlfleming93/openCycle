@@ -111,6 +111,8 @@ async function buildWorld(session: unknown = null): Promise<World> {
     queue: queue as unknown as UploadQueue,
     connector,
     engine: fakeEngine(session),
+    hasLogin: () => false,
+    runLogin: () => Promise.resolve(),
   });
   await app.ready();
   const world: World = { app, db, queue, connector };

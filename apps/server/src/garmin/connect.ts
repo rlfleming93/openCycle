@@ -29,6 +29,10 @@ export const GARMIN = {
     `https://connect.garmin.com/modern/proxy/download-service/files/activity/${activityId}`,
 } as const;
 
+export function garminLoginStatePath(dataDir: string, riderId: string): string {
+  return join(dataDir, 'garmin', `${riderId}.json`);
+}
+
 export interface LoggerLike {
   info(message: string, ...args: unknown[]): void;
   warn(message: string, ...args: unknown[]): void;
@@ -59,7 +63,7 @@ export class GarminConnector {
   ) {}
 
   loginStatePath(riderId: string): string {
-    return join(this.dataDir, 'garmin', `${riderId}.json`);
+    return garminLoginStatePath(this.dataDir, riderId);
   }
 
   hasLogin(riderId: string): boolean {

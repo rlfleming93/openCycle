@@ -16,6 +16,7 @@ import { registerWs } from './api/ws.js';
 import { attachDiscoveries } from './game/discoveries.js';
 import { attachVoyage } from './game/voyage.js';
 import { GarminConnector } from './garmin/connect.js';
+import { runGarminLogin } from './garmin/login.js';
 import { watchImportFolder } from './garmin/dropFolder.js';
 import { attachAutoUpload, UploadQueue } from './garmin/uploadQueue.js';
 import { importGarminZip } from './garmin/zipImport.js';
@@ -73,7 +74,14 @@ const garmin = new GarminConnector(dataDir, app.log);
 const uploadQueue = new UploadQueue(db, garmin, (message) => app.log.info({ message }, 'garmin queue'));
 attachAutoUpload(engine, db, uploadQueue);
 registerActivitiesRoutes(app, { db, engine, importZip: (buf, riderId) => importGarminZip(db, buf, riderId) });
-registerGarminRoutes(app, { db, queue: uploadQueue, connector: garmin, engine });
+registerGarminRoutes(app, {
+  db,
+  queue: uploadQueue,
+  connector: garmin,
+  engine,
+  hasLogin: (riderId) => garmin.hasLogin(riderId),
+  runLogin: (riderId, onProgress) => runGarminLogin(dataDir, riderId, onProgress),
+});
 registerTrainingRoutes(app, { db });
 registerPlansRoutes(app, { db, workoutLibrary });
 const stopImportWatcher = watchImportFolder(db, dataDir, (message) => app.log.info({ message }, 'import folder'));
@@ -132,8 +140,8 @@ process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);
 
 try {
-  // Start the device hub first so a bad OPENCYCLE_SIM spec or a BLE
-  // power-on timeout fails fast instead of leaving a half-up server window.
+  // Invalid sim specs still fail fast. BLE availability is non-fatal inside
+  // the hub, so denied permission cannot prevent the server from listening.
   await hub.start();
   await app.listen({ host, port });
 } catch (err) {

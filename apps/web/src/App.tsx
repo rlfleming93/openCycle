@@ -1,6 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
+import BluetoothBanner from './components/BluetoothBanner.js';
+import { listProfiles } from './lib/api.js';
 import { connectWs } from './lib/ws.js';
 import DevicesPage from './pages/DevicesPage.js';
 import { HistoryPage } from './pages/HistoryPage.js';
@@ -9,6 +11,7 @@ import { RideDetailPage } from './pages/RideDetailPage.js';
 import RidePage from './pages/RidePage.js';
 import SessionBuilderPage from './pages/SessionBuilderPage.js';
 import TrainingPage from './pages/TrainingPage.js';
+import WelcomePage from './pages/WelcomePage.js';
 import VoyagePage from './pages/VoyagePage.js';
 import { useAppStore, type AppState } from './store.js';
 
@@ -63,27 +66,45 @@ function HomeRoute() {
   const session = useAppStore((s) => s.session);
   const wsStatus = useAppStore((s) => s.wsStatus);
   const hydrated = useAppStore((s) => s.hydrated);
+  const [profileState, setProfileState] = useState<'loading' | 'empty' | 'ready'>('loading');
+
+  useEffect(() => {
+    if (session !== null || wsStatus !== 'open' || !hydrated) return;
+    let cancelled = false;
+    setProfileState('loading');
+    void listProfiles()
+      .then((profiles) => {
+        if (!cancelled) setProfileState(profiles.length === 0 ? 'empty' : 'ready');
+      })
+      .catch(() => {
+        if (!cancelled) setProfileState('ready');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, session, wsStatus]);
 
   if (session !== null) return <RidePage />;
 
-  // No session AND (socket down OR the initial sessionState frame has not
-  // arrived yet): hold the dashboard's place instead of bouncing to
-  // /session/new — the session may still be running server-side and the
-  // server always sends a sessionState frame (null included) on connect.
-  if (wsStatus !== 'open' || !hydrated) {
+  // The server always replays sessionState on connect. Wait for it before
+  // deciding whether the rider belongs in onboarding or the session builder.
+  if (wsStatus !== 'open' || !hydrated || profileState === 'loading') {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-void">
         <div className="flex flex-col items-center gap-5 text-ink">
           <div className="h-12 w-12 animate-spin rounded-full border-4 border-line border-t-on" />
-          <p className="font-display text-3xl font-semibold uppercase tracking-[0.06em]">Reconnecting…</p>
-          <p className="text-xl text-dim">Your session stays on screen once the server is back.</p>
+          <p className="font-display text-3xl font-semibold uppercase tracking-[0.06em]">
+            {wsStatus === 'open' && hydrated ? 'Loading…' : 'Reconnecting…'}
+          </p>
+          {wsStatus !== 'open' && (
+            <p className="text-xl text-dim">Your session stays on screen once the server is back.</p>
+          )}
         </div>
       </div>
     );
   }
 
-  // Socket open and the server confirms no session: the builder is the home.
-  return <Navigate to="/session/new" replace />;
+  return <Navigate to={profileState === 'empty' ? '/welcome' : '/session/new'} replace />;
 }
 
 export default function App() {
@@ -95,9 +116,11 @@ export default function App() {
     <BrowserRouter>
       <div className="flex h-full flex-col bg-void text-ink">
         <NavBar />
+        <BluetoothBanner />
         <main className="min-h-0 flex-1">
           <Routes>
             <Route path="/" element={<HomeRoute />} />
+            <Route path="/welcome" element={<WelcomePage />} />
             <Route path="/session/new" element={<SessionBuilderPage />} />
             <Route path="/voyage" element={<VoyagePage />} />
             <Route path="/profiles" element={<ProfilesPage />} />
