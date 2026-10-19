@@ -67,7 +67,7 @@ export default function RidePage() {
 
   if (!spaceGame) {
     return (
-      <div className="relative flex h-screen w-screen flex-col bg-void text-ink">
+      <div className="relative flex h-screen w-screen flex-col bg-void pt-[clamp(76px,6.25vw,200px)] text-ink">
         {lastError !== null && !errorDismissed && (
           <ErrorBanner message={lastError} onDismiss={() => setErrorDismissed(true)} />
         )}

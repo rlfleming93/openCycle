@@ -37,6 +37,7 @@ export class DeviceRegistry {
   private readonly listStmt: Database.Statement;
   private readonly assignStmt: Database.Statement;
   private readonly forgetStmt: Database.Statement;
+  private readonly labelStmt: Database.Statement;
   private readonly slotStmt: Database.Statement;
 
   constructor(private readonly db: Db) {
@@ -46,12 +47,13 @@ export class DeviceRegistry {
        ON CONFLICT (id) DO UPDATE SET name = excluded.name, last_seen = excluded.last_seen`,
     );
     this.listStmt = db.prepare(
-      `SELECT id, kind, name, last_seen AS lastSeen, rider_id AS riderId
+      `SELECT id, kind, COALESCE(label, name) AS name, last_seen AS lastSeen, rider_id AS riderId
        FROM devices
        ORDER BY last_seen DESC, id ASC`,
     );
     this.assignStmt = db.prepare('UPDATE devices SET rider_id = @riderId WHERE id = @deviceId');
     this.forgetStmt = db.prepare('DELETE FROM devices WHERE id = @deviceId');
+    this.labelStmt = db.prepare('UPDATE devices SET label = @label WHERE id = @deviceId');
     this.slotStmt = db.prepare(
       `SELECT rider_id AS riderId, kind, id
        FROM devices
@@ -79,6 +81,14 @@ export class DeviceRegistry {
 
   assign(deviceId: string, riderId: string | null): void {
     const result = this.assignStmt.run({ deviceId, riderId });
+    if (result.changes === 0) {
+      throw new Error(`unknown device: ${deviceId}`);
+    }
+  }
+
+  /** Set the display label; null restores the advertised name. */
+  setLabel(deviceId: string, label: string | null): void {
+    const result = this.labelStmt.run({ deviceId, label });
     if (result.changes === 0) {
       throw new Error(`unknown device: ${deviceId}`);
     }

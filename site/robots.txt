@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://opencycle.fleming.run/sitemap.xml

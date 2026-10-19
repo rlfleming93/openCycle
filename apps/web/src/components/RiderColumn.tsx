@@ -1,12 +1,14 @@
+import { crankTorqueNm } from '@opencycle/shared';
 import type { SessionSnapshot, TelemetrySample } from '@opencycle/shared';
 
-import { getEffortCue, getWorkoutCommand } from '../game/feedback.js';
-import { fmtClock, trailingAvgPower } from '../game/hud.js';
+import { getEffortCue, getWorkoutCommand, pauseBannerText } from '../game/feedback.js';
+import { fmtClock, trailingAvgCadence, trailingAvgPower } from '../game/hud.js';
 import { identityColor } from '../lib/identity.js';
 import { targetRatioColor, zoneColor } from '../lib/zones.js';
 import { useAppStore } from '../store.js';
 
 import WorkoutProfile from './WorkoutProfile.js';
+import { CadenceDial, TorqueMeter } from './hud/CadenceDial.js';
 
 type Rider = SessionSnapshot['riders'][number];
 
@@ -56,6 +58,8 @@ export default function RiderColumn({ rider, riderIndex = 0 }: { rider: Rider; r
   const deviceStatus = useAppStore((state) => state.deviceStatus);
 
   const avgPower = trailingAvgPower(telemetry);
+  const avgCadence = trailingAvgCadence(telemetry);
+  const torqueNm = crankTorqueNm(avgPower, avgCadence ?? 0);
   // LAW (round-2 blind review): with a numeric target the power numeral is
   // colored by ratio-to-target — on 0.90-1.10, over >1.10, dim <0.90.
   // %FTP zone bands apply ONLY when there is no target (free ride).
@@ -64,6 +68,7 @@ export default function RiderColumn({ rider, riderIndex = 0 }: { rider: Rider; r
       ? targetRatioColor(avgPower / rider.targetW)
       : zoneColor(rider.ftpW > 0 ? (avgPower / rider.ftpW) * 100 : 0);
   const paused = rider.state === 'paused';
+  const trainerPaused = paused && rider.pauseReason === 'trainer';
   const speedKmh = latest?.speedKmh ?? 0;
   const distanceKm = (latest?.distanceM ?? rider.distanceM) / 1000;
 
@@ -105,31 +110,62 @@ export default function RiderColumn({ rider, riderIndex = 0 }: { rider: Rider; r
         />
       </header>
 
-      <div className={`w-fit rounded-[8px] border px-4 py-1.5 font-display text-xl font-bold uppercase tracking-[0.06em] ${cueClass}`}>
+      {paused && (
+        <div
+          aria-live="polite"
+          className={`flex items-center gap-3 rounded-[8px] border px-4 py-2 font-display text-xl font-bold ${
+            trainerPaused
+              ? 'border-danger/50 bg-danger/10 text-danger'
+              : 'border-over/50 bg-over/10 text-over'
+          }`}
+        >
+          {trainerPaused && (
+            <span
+              aria-hidden="true"
+              className="h-3 w-3 shrink-0 animate-pulse rounded-full bg-danger motion-reduce:animate-none"
+            />
+          )}
+          <span>{pauseBannerText(rider)}</span>
+        </div>
+      )}
+
+      <div
+        className={`w-fit rounded-[8px] border px-4 py-1.5 font-display text-xl font-bold uppercase tracking-[0.06em] ${cueClass}`}
+      >
         {effortCue.instruction}
       </div>
 
-      {/* Paused riders keep the last known value on screen, dimmed. */}
-      <div className={`flex items-baseline gap-3 ${paused ? 'opacity-40' : ''}`}>
-        <span className={`font-display text-8xl font-bold leading-none tabular-nums ${powerColor}`}>
-          {Math.round(avgPower)}
-        </span>
-        <span className="font-display text-3xl font-semibold text-dim">W</span>
-        {paused && <span className="text-2xl font-semibold text-dim">— paused</span>}
-      </div>
+      {/* Paused riders keep the last known values on screen, dimmed. */}
+      <div
+        className={`grid grid-cols-[minmax(0,1.2fr)_minmax(140px,0.9fr)_minmax(130px,0.8fr)] items-center gap-5 ${
+          paused ? 'opacity-40' : ''
+        }`}
+      >
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex items-baseline gap-3">
+            <span className={`font-display text-8xl font-bold leading-none tabular-nums ${powerColor}`}>
+              {Math.round(avgPower)}
+            </span>
+            <span className="font-display text-3xl font-semibold text-dim">W</span>
+          </div>
 
-      <div className="flex items-center gap-3">
-        <span className="font-display text-lg uppercase tracking-[0.06em] text-dim">Target</span>
-        <span className="font-display text-5xl font-bold leading-none tabular-nums text-ink">
-          {rider.targetW !== null ? Math.round(rider.targetW) : '—'}
-        </span>
-        <span className="font-display text-2xl text-dim">W</span>
-        {rider.biasPct !== 0 && (
-          <span className="rounded-[8px] border border-over/40 bg-over/10 px-2 py-0.5 font-display text-xl font-bold tabular-nums text-over">
-            {rider.biasPct > 0 ? '+' : ''}
-            {rider.biasPct}% bias
-          </span>
-        )}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-display text-lg uppercase tracking-[0.06em] text-dim">Target</span>
+            <span className="font-display text-5xl font-bold leading-none tabular-nums text-ink">
+              {rider.targetW !== null ? Math.round(rider.targetW) : '—'}
+            </span>
+            <span className="font-display text-2xl text-dim">W</span>
+            {rider.biasPct !== 0 && (
+              <span className="rounded-[8px] border border-over/40 bg-over/10 px-2 py-0.5 font-display text-xl font-bold tabular-nums text-over">
+                {rider.biasPct > 0 ? '+' : ''}
+                {rider.biasPct}% bias
+              </span>
+            )}
+          </div>
+        </div>
+
+        <CadenceDial cadenceRpm={avgCadence} className="w-full max-w-[240px] justify-self-center" />
+        <TorqueMeter torqueNm={torqueNm} className="w-full max-w-[220px]" />
       </div>
 
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 font-display uppercase tracking-[0.06em]">
@@ -143,8 +179,7 @@ export default function RiderColumn({ rider, riderIndex = 0 }: { rider: Rider; r
 
       {/* flex-1 + content-center: the stats block absorbs vertical slack so a
           4K wall has no dead void between the numbers and the controls. */}
-      <div className="grid flex-1 content-center grid-cols-3 gap-4">
-        <Stat label="Cadence" value={String(Math.round(latest?.cadenceRpm ?? 0))} unit="rpm" />
+      <div className="grid flex-1 content-center grid-cols-2 gap-4">
         <Stat label="HR" value={latest?.hrBpm !== undefined ? String(latest.hrBpm) : '—'} unit="bpm" />
         <Stat
           label="Step ends in"

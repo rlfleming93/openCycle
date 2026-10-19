@@ -54,6 +54,8 @@ hub.on('trainer', (trainer) => {
 });
 hub.on('hrm', (hrm) => {
   app.log.info({ id: hrm.id, name: hrm.name }, 'hrm discovered');
+  // Reconnect failures only surface as status events; log them with their reason.
+  hrm.on('status', (status) => app.log.info({ id: hrm.id, status }, 'hrm status'));
   void hrm.connect().catch((err: unknown) => {
     app.log.warn({ err, id: hrm.id }, 'hrm connect failed');
   });
@@ -111,7 +113,8 @@ app.addHook('onClose', async () => {
 // Bind on every interface by default (phones/tablets on the same LAN control
 // the session); OPENCYCLE_HOST narrows it to one address.
 const host = process.env.OPENCYCLE_HOST ?? '0.0.0.0';
-const port = 4000;
+// OPENCYCLE_PORT lets a second (sim) server run beside the app's :4000.
+const port = Number(process.env.OPENCYCLE_PORT ?? 4000);
 
 // Real signal handling: close the app so the onClose hook (engine stop +
 // recorder flush + hub.stop + db.close) runs on Ctrl-C; exit only after the

@@ -293,8 +293,21 @@ export function legLockFraction(targetedS: number, onTargetS: number): number {
 /** 3 s trailing average power (samples arrive at 1 Hz, so the last 3 samples). */
 export function trailingAvgPower(samples: readonly TelemetrySample[]): number {
   if (samples.length === 0) return 0;
-  const tail = samples.slice(-3);
-  return tail.reduce((sum, sample) => sum + sample.powerW, 0) / tail.length;
+  let total = 0;
+  for (let i = Math.max(0, samples.length - 3); i < samples.length; i++) {
+    total += samples[i]!.powerW;
+  }
+  return total / Math.min(3, samples.length);
+}
+
+/** 3 s trailing average cadence, or null until the first trainer sample. */
+export function trailingAvgCadence(samples: readonly TelemetrySample[]): number | null {
+  if (samples.length === 0) return null;
+  let total = 0;
+  for (let i = Math.max(0, samples.length - 3); i < samples.length; i++) {
+    total += samples[i]!.cadenceRpm;
+  }
+  return total / Math.min(3, samples.length);
 }
 
 export interface RouteHeader {

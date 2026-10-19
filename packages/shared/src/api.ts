@@ -28,6 +28,11 @@ export const SessionSnapshotSchema = z.object({
       workoutName: z.string().min(1).optional(),
       state: z.enum(['riding', 'paused', 'stopped']),
       /**
+       * Present only while paused: 'manual' = the rider paused; 'trainer' = the
+       * engine auto-paused on a lost trainer and resumes on its next fresh sample.
+       */
+      pauseReason: z.enum(['manual', 'trainer']).optional(),
+      /**
        * Index into the FLATTENED step list (ramp sub-steps and interval
        * repeats each count); the dashboard progress cursor needs this. It is
        * NOT the workout.steps index used by stepCompleted events.
@@ -82,6 +87,8 @@ export const WsServerMessageSchema = z.discriminatedUnion('type', [
     deviceId: z.string().min(1),
     kind: DeviceKindSchema,
     status: z.string().min(1),
+    /** Driver status detail, e.g. 'pairing (attempt 1/6)' or an error message. */
+    message: z.string().min(1).optional(),
   }),
   // session: null is the explicit terminal frame, broadcast once after
   // stopSession completes (and after a startSession rollback).

@@ -80,16 +80,16 @@ export function registerWs(app: FastifyInstance, ctx: ApiContext): void {
 
   // deviceStatus: mirror every driver's status event to all sockets, for
   // already-known drivers and for devices discovered later.
+  const statusFrame = (deviceId: string, status: TrainerStatus): WsServerMessage => ({
+    type: 'deviceStatus',
+    deviceId,
+    kind: ctx.hub.find(deviceId) instanceof TrainerDriver ? 'trainer' : 'hrm',
+    status: status.kind,
+    ...(status.message ? { message: status.message } : {}),
+  });
   const statusSubs: Array<{ driver: TrainerDriver | HrmDriver; handler: (status: TrainerStatus) => void }> = [];
   const subscribeStatus = (driver: TrainerDriver | HrmDriver): void => {
-    const handler = (status: TrainerStatus): void => {
-      broadcast({
-        type: 'deviceStatus',
-        deviceId: driver.id,
-        kind: driver instanceof TrainerDriver ? 'trainer' : 'hrm',
-        status: status.kind,
-      });
-    };
+    const handler = (status: TrainerStatus): void => broadcast(statusFrame(driver.id, status));
     driver.on('status', handler);
     statusSubs.push({ driver, handler });
   };
@@ -105,6 +105,8 @@ export function registerWs(app: FastifyInstance, ctx: ApiContext): void {
     // Always send an initial sessionState (null included): clients use this
     // frame as the hydration signal before making routing decisions.
     send(socket, { type: 'sessionState', session: ctx.engine.session });
+    // Status is event-only: replay each device's last one so late pages are current.
+    for (const [deviceId, status] of ctx.hub.lastStatuses()) send(socket, statusFrame(deviceId, status));
 
     const onTelemetry = (samples: TelemetrySample[]): void => {
       send(socket, { type: 'telemetry', samples });

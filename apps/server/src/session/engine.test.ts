@@ -113,6 +113,8 @@ class FakeRecorder implements RecorderLike {
         distanceM: 0,
         avgPowerW: 0,
         weightedPowerW: 0,
+        workKj: 0,
+        avgCadenceRpm: 0,
         avgHrBpm: null,
         trainingLoad: null,
       },
@@ -762,30 +764,87 @@ describe('SessionEngine', () => {
     expect(t1.calls).toEqual([160]);
   });
 
-  it('treats stale trainer samples as 0 W / 0 rpm so distance stops accruing', async () => {
+  it('auto-pauses a rider whose trainer goes silent instead of recording 0 W dropout rows', async () => {
     const h = makeHarness();
     const t1 = new FakeTrainer('t-r1');
     h.trainers.set('t-r1', t1);
     await h.engine.startSession([riderCfg('r1', 200, workout('w1', [steady(600, 1.0)]))]);
 
     // Samples are emitted before each tick, so the last sample (t = 4 s) is
-    // consumed by the tick at t = 5 s; the 3 s staleness window covers ticks
-    // through t = 7 s, and the t = 8 s tick reads it as stale.
+    // consumed by the tick at t = 5 s; the 3 s staleness window holds it
+    // through t = 7 s, and the t = 8 s tick pauses the rider instead.
     await ticks(5, () => t1.sample(200, 90));
-    await ticks(2); // t = 6..7 s: still within the window → live
-    const lastLive = h.recorder.appended.at(-1)!;
-    expect(lastLive.powerW).toBe(200);
-    expect(lastLive.cadenceRpm).toBe(90);
-
-    await ticks(1); // t = 8 s: sample is 4 s old → stale
-    const stale = h.recorder.appended.at(-1)!;
-    expect(stale.powerW).toBe(0);
-    expect(stale.cadenceRpm).toBe(0);
-    expect(stale.distanceM).toBe(lastLive.distanceM); // no distance accrual
-
     await ticks(2);
-    expect(h.recorder.appended.at(-1)!.distanceM).toBe(lastLive.distanceM);
-    expect(h.recorder.appended.at(-1)!.powerW).toBe(0);
+    expect(h.engine.session!.riders[0]!.state).toBe('riding');
+    const rowsBeforeDropout = h.recorder.appended.length;
+
+    await ticks(1);
+    expect(h.states.at(-1)!.riders[0]).toMatchObject({ state: 'paused', pauseReason: 'trainer' });
+
+    // A dropout longer than the guard's 5 s window records nothing: no 0 W
+    // rows, a frozen workout clock and no death-spiral guard.
+    await ticks(20);
+    expect(h.recorder.appended).toHaveLength(rowsBeforeDropout);
+    expect(h.recorder.appended.every((s) => s.powerW === 200)).toBe(true);
+    expect(h.engine.session!.riders[0]).toMatchObject({ workoutClockS: 7, elapsedS: 7 });
+    expect(h.events.filter((e) => e.kind === 'ergGuard')).toHaveLength(0);
+
+    // A manual resume while the trainer is still silent re-pauses on the
+    // next tick, again without a row.
+    h.engine.resume('r1');
+    await ticks(1);
+    expect(h.engine.session!.riders[0]).toMatchObject({ state: 'paused', pauseReason: 'trainer', workoutClockS: 7 });
+    expect(h.recorder.appended).toHaveLength(rowsBeforeDropout);
+  });
+
+  it('auto-resumes on the next fresh trainer sample and re-sends the ERG target', async () => {
+    const h = makeHarness();
+    const t1 = new FakeTrainer('t-r1');
+    h.trainers.set('t-r1', t1);
+    await h.engine.startSession([riderCfg('r1', 200, workout('w1', [steady(600, 1.0)]))]);
+
+    await ticks(5, () => t1.sample(200, 90));
+    expect(t1.calls).toEqual([200]);
+
+    // A dropped link pauses at once, without riding out the stale window.
+    t1.status('disconnected');
+    expect(h.states.at(-1)!.riders[0]).toMatchObject({ state: 'paused', pauseReason: 'trainer' });
+    await ticks(10);
+    expect(h.recorder.appended).toHaveLength(5);
+
+    // The first sample back resumes the rider; the next tick re-sends the
+    // ERG target the reconnected trainer may have lost.
+    t1.sample(200, 90);
+    expect(h.states.at(-1)!.riders[0]!.state).toBe('riding');
+    expect(h.states.at(-1)!.riders[0]!.pauseReason).toBeUndefined();
+    await ticks(3, () => t1.sample(200, 90));
+    expect(t1.calls).toEqual([200, 200]);
+    expect(h.recorder.appended).toHaveLength(8);
+    expect(h.engine.session!.riders[0]).toMatchObject({ state: 'riding', workoutClockS: 8, elapsedS: 8 });
+  });
+
+  it('never auto-resumes a manual pause, including one taken during a trainer auto-pause', async () => {
+    const h = makeHarness();
+    const t1 = new FakeTrainer('t-r1');
+    h.trainers.set('t-r1', t1);
+    await h.engine.startSession([riderCfg('r1', 200, workout('w1', [steady(600, 1.0)]))]);
+
+    await ticks(5, () => t1.sample(200, 90));
+    h.engine.pause('r1');
+    await ticks(10, () => t1.sample(200, 90)); // fresh samples keep flowing
+    expect(h.engine.session!.riders[0]).toMatchObject({ state: 'paused', pauseReason: 'manual', workoutClockS: 5 });
+
+    h.engine.resume('r1');
+    await ticks(2, () => t1.sample(200, 90));
+    t1.status('disconnected');
+    expect(h.engine.session!.riders[0]!.pauseReason).toBe('trainer');
+    // Pausing during the auto-pause makes it manual: the returning trainer
+    // must not resume the rider.
+    h.engine.pause('r1');
+    expect(h.states.at(-1)!.riders[0]).toMatchObject({ state: 'paused', pauseReason: 'manual' });
+    await ticks(10, () => t1.sample(200, 90));
+    expect(h.engine.session!.riders[0]).toMatchObject({ state: 'paused', pauseReason: 'manual', workoutClockS: 7 });
+    expect(h.recorder.appended).toHaveLength(7);
   });
 
   it('treats a stale trainer sample as out of the zone: no bothInZone while a rider is silent', async () => {
@@ -804,9 +863,9 @@ describe('SessionEngine', () => {
     await ticks(5, () => t1.sample(200, 90), () => t2.sample(250, 90)); // both at target
     expect(zoneEvents()).toHaveLength(0);
 
-    // t2's trainer goes silent: its last sample (at target, 250 W) goes stale
-    // and must count as out of zone — the streak dies instead of banking on
-    // the frozen sample.
+    // t2's trainer goes silent: once its last sample (at target, 250 W) goes
+    // stale, r2 auto-pauses and leaves the co-op — the streak dies instead of
+    // banking on the frozen sample.
     await ticks(40, () => t1.sample(200, 90));
     expect(zoneEvents()).toHaveLength(0);
 

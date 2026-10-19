@@ -31,11 +31,50 @@ const EMPTY_ROW: RiderRow = { key: 0, profileId: '', trainerId: '', hrmId: '', w
 const selectClass =
   'w-full rounded-[8px] border border-line bg-deep px-3 py-2 text-ink focus:border-on focus:outline-none';
 
+function DeviceStatusChip({
+  deviceId,
+  status,
+  message,
+}: {
+  deviceId: string;
+  status: string | undefined;
+  message: string | undefined;
+}) {
+  if (deviceId === '') return null;
+  const connected = status === 'connected' || status === 'controlAcquired';
+  const connecting = status === 'connecting';
+  const failed = status === 'disconnected' || status === 'error' || status === 'controlLost';
+  const label = connected
+    ? 'Connected'
+    : connecting
+      ? (message ?? 'Connecting')
+      : failed
+        ? (message ?? (status === 'error' ? 'Error' : 'Disconnected'))
+        : (message ?? 'Waiting');
+  const className = connected
+    ? 'border-on/40 bg-on/10 text-on'
+    : connecting
+      ? 'border-under/40 bg-under/10 text-under'
+      : failed
+        ? 'border-danger/40 bg-danger/10 text-danger'
+        : 'border-line bg-panel/60 text-dim';
+  return (
+    <span
+      aria-live="polite"
+      className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-xs ${className}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function SessionBuilderPage() {
   const navigate = useNavigate();
   const nextKey = useRef(1);
   const spaceGame = useAppStore((s) => s.spaceGame);
   const setSpaceGame = useAppStore((s) => s.setSpaceGame);
+  const deviceStatus = useAppStore((s) => s.deviceStatus);
+  const deviceStatusMessage = useAppStore((s) => s.deviceStatusMessage);
   const [profiles, setProfiles] = useState<RiderProfile[]>([]);
   const [devices, setDevices] = useState<ListedDevice[]>([]);
   const [workouts, setWorkouts] = useState<WorkoutListItem[]>([]);
@@ -81,12 +120,17 @@ export default function SessionBuilderPage() {
     setRows((rs) =>
       rs.map((r) => {
         if (r.key !== key) return r;
-        const assigned = devices.find((d) => d.kind === 'trainer' && d.riderId === profileId);
+        const assignedTrainer = devices.find((d) => d.kind === 'trainer' && d.riderId === profileId);
+        const assignedHrm = devices.find((d) => d.kind === 'hrm' && d.riderId === profileId);
         const trainerId =
-          assigned !== undefined && !rs.some((o) => o.key !== key && o.trainerId === assigned.id)
-            ? assigned.id
+          assignedTrainer !== undefined && !rs.some((o) => o.key !== key && o.trainerId === assignedTrainer.id)
+            ? assignedTrainer.id
             : r.trainerId;
-        return { ...r, profileId, trainerId };
+        const hrmId =
+          assignedHrm !== undefined && !rs.some((o) => o.key !== key && o.hrmId === assignedHrm.id)
+            ? assignedHrm.id
+            : r.hrmId;
+        return { ...r, profileId, trainerId, hrmId };
       }),
     );
   }
@@ -143,6 +187,12 @@ export default function SessionBuilderPage() {
   }
 
   const ready = rows.length > 0 && rows.every((r) => r.profileId !== '' && r.trainerId !== '');
+  const trainerNeedsConnection = rows.some(
+    (row) =>
+      row.trainerId !== '' &&
+      deviceStatus[row.trainerId] !== 'connected' &&
+      deviceStatus[row.trainerId] !== 'controlAcquired',
+  );
 
   async function handleStart() {
     if (!ready) return;
@@ -214,6 +264,11 @@ export default function SessionBuilderPage() {
                 </option>
               ))}
             </select>
+            <DeviceStatusChip
+              deviceId={row.trainerId}
+              status={deviceStatus[row.trainerId]}
+              message={deviceStatusMessage[row.trainerId]}
+            />
           </label>
           <label className="block">
             <span className="mb-1 block text-sm text-dim">Heart rate strap (optional)</span>
@@ -229,6 +284,11 @@ export default function SessionBuilderPage() {
                 </option>
               ))}
             </select>
+            <DeviceStatusChip
+              deviceId={row.hrmId}
+              status={deviceStatus[row.hrmId]}
+              message={deviceStatusMessage[row.hrmId]}
+            />
           </label>
         </div>
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -331,23 +391,28 @@ export default function SessionBuilderPage() {
         <p className="mt-1 text-sm text-dim">Fly each workout as a voyage leg. Free rides cruise open space.</p>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-4">
-        <button
-          onClick={addRow}
-          disabled={rows.length >= trainers.length}
-          className="rounded-[8px] border border-line px-4 py-2 text-sm text-ink/90 hover:bg-ink/5 disabled:opacity-40"
-        >
-          Add rider
-        </button>
-        <button
-          onClick={() => void handleStart()}
-          disabled={!ready || starting}
-          className="rounded-[8px] bg-on px-6 py-2 font-medium text-void hover:bg-on/85 disabled:opacity-40"
-        >
-          {starting ? 'Starting…' : 'Start session'}
-        </button>
-        {!ready && rows.length > 0 && (
-          <p className="text-sm text-dim">Every rider needs a profile and a trainer.</p>
+      <div className="mt-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <button
+            onClick={addRow}
+            disabled={rows.length >= trainers.length}
+            className="rounded-[8px] border border-line px-4 py-2 text-sm text-ink/90 hover:bg-ink/5 disabled:opacity-40"
+          >
+            Add rider
+          </button>
+          <button
+            onClick={() => void handleStart()}
+            disabled={!ready || starting}
+            className="rounded-[8px] bg-on px-6 py-2 font-medium text-void hover:bg-on/85 disabled:opacity-40"
+          >
+            {starting ? 'Starting…' : 'Start session'}
+          </button>
+          {!ready && rows.length > 0 && (
+            <p className="text-sm text-dim">Every rider needs a profile and a trainer.</p>
+          )}
+        </div>
+        {trainerNeedsConnection && (
+          <p className="mt-2 text-sm text-under">Trainer not connected yet — pedal to wake it</p>
         )}
       </div>
     </div>

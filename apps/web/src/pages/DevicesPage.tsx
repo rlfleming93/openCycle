@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import type { DeviceInfo, RiderProfile } from '@opencycle/shared';
 
-import { assignDevice, forgetDevice, listDevices, listProfiles } from '../lib/api.js';
+import { assignDevice, forgetDevice, labelDevice, listDevices, listProfiles } from '../lib/api.js';
 import { useAppStore } from '../store.js';
 
 type ListedDevice = DeviceInfo & { riderId?: string };
@@ -41,6 +41,7 @@ export default function DevicesPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const deviceStatus = useAppStore((s) => s.deviceStatus);
+  const deviceStatusMessage = useAppStore((s) => s.deviceStatusMessage);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +86,21 @@ export default function DevicesPage() {
     }
   }
 
+  async function handleRename(device: ListedDevice) {
+    const input = window.prompt('Device label (empty restores the advertised name)', device.name);
+    if (input === null) return;
+    setBusyId(device.id);
+    setError(null);
+    try {
+      const updated = await labelDevice(device.id, input.trim() === '' ? null : input.trim());
+      setDevices((ds) => (ds === null ? ds : ds.map((d) => (d.id === device.id ? updated : d))));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function handleForget(device: ListedDevice) {
     if (!window.confirm(`Forget device "${device.name}"? It will reappear when it advertises again.`)) return;
     setBusyId(device.id);
@@ -101,6 +117,9 @@ export default function DevicesPage() {
 
   function deviceCard(device: ListedDevice) {
     const status = deviceStatus[device.id];
+    const message = deviceStatusMessage[device.id];
+    const showGarminPairingHint =
+      device.kind === 'hrm' && (message?.toLowerCase().includes('pairing') === true || status === 'error');
     const fresh = now - device.lastSeen < 5000;
     return (
       <div
@@ -125,6 +144,10 @@ export default function DevicesPage() {
                 {status ?? 'unknown'}
               </span>
             </div>
+            {message !== undefined && <p className="mt-1 text-xs text-dim">{message}</p>}
+            {showGarminPairingHint && (
+              <p className="mt-1 text-xs text-under">Garmin strap: hold its button 4 s to enter pairing mode.</p>
+            )}
             <p className="mt-1 font-mono text-xs text-dim">{shortId(device.id)}</p>
           </div>
           <div className="shrink-0 text-right text-xs text-dim">
@@ -150,9 +173,16 @@ export default function DevicesPage() {
             </select>
           </label>
           <button
-            onClick={() => void handleForget(device)}
+            onClick={() => void handleRename(device)}
             disabled={busyId === device.id}
             className="ml-auto rounded-[8px] border border-line px-2 py-1 text-xs text-ink/90 hover:bg-ink/10 disabled:opacity-50"
+          >
+            Rename
+          </button>
+          <button
+            onClick={() => void handleForget(device)}
+            disabled={busyId === device.id}
+            className="rounded-[8px] border border-line px-2 py-1 text-xs text-ink/90 hover:bg-ink/10 disabled:opacity-50"
           >
             Forget
           </button>

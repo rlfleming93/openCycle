@@ -148,6 +148,7 @@ function errorMessage(err: unknown): string {
 const ProfileInputSchema = RiderProfileSchema.omit({ id: true });
 const IdParamSchema = z.object({ id: z.string().min(1) });
 const AssignBodySchema = z.object({ riderId: z.string().min(1).nullable() });
+const LabelBodySchema = z.object({ label: z.string().trim().min(1).max(40).nullable() });
 const ImportBodySchema = z.object({ xml: z.string().min(1) });
 const StartSessionBodySchema = z.object({ riders: z.array(RiderStartSchema).min(1) });
 const RidesQuerySchema = z.object({ riderId: z.string().min(1).optional() });
@@ -219,6 +220,19 @@ function registerDeviceRoutes(app: FastifyInstance, ctx: ApiContext): void {
     const { riderId } = parseOr400(AssignBodySchema, req.body);
     try {
       ctx.registry.assign(id, riderId);
+    } catch (err) {
+      throw new ApiError(404, errorMessage(err));
+    }
+    const device = ctx.registry.list().find((d) => d.id === id);
+    if (device === undefined) throw new ApiError(404, `Unknown device ${id}`);
+    reply.send(device);
+  });
+
+  app.put('/api/devices/:id/label', async (req, reply) => {
+    const { id } = parseOr400(IdParamSchema, req.params);
+    const { label } = parseOr400(LabelBodySchema, req.body);
+    try {
+      ctx.registry.setLabel(id, label);
     } catch (err) {
       throw new ApiError(404, errorMessage(err));
     }

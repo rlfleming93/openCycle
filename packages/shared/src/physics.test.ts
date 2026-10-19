@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_PHYSICS, integrateDistance, virtualSpeed } from './physics.js';
+import { crankTorqueNm, DEFAULT_PHYSICS, integrateDistance, virtualSpeed } from './physics.js';
 
 const G = 9.8067;
 
@@ -15,6 +15,23 @@ function resistanceWatts(v: number, riderKg: number): number {
     0.5 * DEFAULT_PHYSICS.airDensityKgM3 * DEFAULT_PHYSICS.cda * v ** 3
   );
 }
+
+describe('crankTorqueNm', () => {
+  it.each([
+    [150, 90, 15.915],
+    [300, 60, 47.746],
+  ])('converts %d W at %d rpm to %d Nm', (powerW, cadenceRpm, expected) => {
+    expect(crankTorqueNm(powerW, cadenceRpm)).toBeCloseTo(expected, 3);
+  });
+
+  it.each([
+    [150, 19],
+    [150, 0],
+    [0, 90],
+  ])('returns null for %d W at %d rpm', (powerW, cadenceRpm) => {
+    expect(crankTorqueNm(powerW, cadenceRpm)).toBeNull();
+  });
+});
 
 describe('virtualSpeed', () => {
   const riderKg = 75;
