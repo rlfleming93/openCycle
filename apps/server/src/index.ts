@@ -44,6 +44,7 @@ const ble = process.env.OPENCYCLE_BLE === '1';
 const hub = new DeviceHub({ registry, sim, ble });
 app.decorate('deviceHub', hub);
 
+hub.on('bleError', (err) => app.log.warn({ err }, 'bluetooth scan failed to start'));
 hub.on('trainer', (trainer) => {
   app.log.info({ id: trainer.id, name: trainer.name }, 'trainer discovered');
   // The session engine never connects drivers; the app owns device

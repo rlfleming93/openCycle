@@ -355,7 +355,10 @@ function DeviceSetupStep({
 }: DeviceStepProps) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const deviceNoun = kind === 'trainer' ? 'trainer' : 'heart rate strap';
-  const [label, setLabel] = useState(`${profile.name}'s ${deviceNoun}`);
+  // Coming Back to a step must keep the name already saved on the device.
+  const [label, setLabel] = useState(
+    () => devices.find((device) => device.id === selectedId)?.name ?? `${profile.name}'s ${deviceNoun}`,
+  );
   const [selectedAt, setSelectedAt] = useState(() => (selectedId === null ? 0 : Date.now()));
   const [error, setError] = useState<string | null>(null);
   const sample = useAppStore((state) =>

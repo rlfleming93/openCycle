@@ -70,15 +70,6 @@ export default function GarminConnect({ riderId }: GarminConnectProps) {
     }
   }
 
-  if (status?.hasLogin === true) {
-    return (
-      <p className="flex items-center gap-2 text-sm font-medium text-on">
-        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-on" />
-        Garmin connected
-      </p>
-    );
-  }
-
   if (polling) {
     return (
       <p aria-live="polite" className="flex items-start gap-2 text-sm text-under">
@@ -90,6 +81,7 @@ export default function GarminConnect({ riderId }: GarminConnectProps) {
     );
   }
 
+  // Failure wins over a saved login: a failed re-login must stay visible.
   const error = status?.state === 'failed' ? (status.error ?? 'Garmin login failed.') : requestError;
   if (error !== null) {
     return (
@@ -106,6 +98,24 @@ export default function GarminConnect({ riderId }: GarminConnectProps) {
           {starting ? 'Starting…' : 'Retry'}
         </button>
       </div>
+    );
+  }
+
+  if (status?.hasLogin === true) {
+    // Garmin sessions expire; Reconnect replaces the saved login.
+    return (
+      <p className="flex items-center gap-2 text-sm font-medium text-on">
+        <span aria-hidden="true" className="h-2 w-2 rounded-full bg-on" />
+        Garmin connected
+        <button
+          type="button"
+          disabled={starting}
+          onClick={() => void beginLogin()}
+          className="ml-2 text-xs font-normal text-dim underline hover:text-ink disabled:opacity-50"
+        >
+          {starting ? 'Starting…' : 'Reconnect'}
+        </button>
+      </p>
     );
   }
 

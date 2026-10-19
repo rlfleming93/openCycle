@@ -13,6 +13,7 @@ export class DeviceHub extends EventEmitter<{
   trainer: [TrainerDriver];
   hrm: [HrmDriver];
   adapter: [AdapterState];
+  bleError: [unknown];
 }> {
   private readonly registry: DeviceRegistry;
   private readonly sim: string | undefined;
@@ -50,7 +51,7 @@ export class DeviceHub extends EventEmitter<{
           this.emit('adapter', state);
         });
         this.adapter = manager.adapterState();
-        void manager.startScan().catch(() => {});
+        void manager.startScan().catch((err: unknown) => this.emit('bleError', err));
       } catch {
         // BLE availability must not prevent the HTTP server or sim devices.
       }
