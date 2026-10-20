@@ -117,7 +117,7 @@ Worked: `16 96 20 03` = 150 bpm, contact, RR 800/1024 s.
 |---|---|---|---|
 | HRM-Pro / Pro Plus | Yes | 2 | + unlimited ANT+; watch coexists |
 | HRM-Dual | Yes | treat as 1 | watch on ANT+ if worn |
-| HRM 200 | Yes | — | must be in **Open** (not Secure) pairing mode |
+| HRM 200 | Yes | — | must be in **Open** (not Secure) pairing mode. Observed 2026-10: first connect from a Mac fails with SMP Pairing Failed reason 5 (Pairing Not Supported) and the link drops; hold the button 4 s (pairing mode, 5 min) and the next attempt bonds. The bond persists; later connects need no button |
 | HRM-Run/Tri/Swim | **No** | — | ANT+-only, invisible to Mac |
 
 ## ERG loop practice
@@ -127,3 +127,4 @@ Worked: `16 96 20 03` = 150 bpm, contact, RR 800/1024 s.
 - Death spiral: trainer physics, not protocol. App guard: cadence < 40 rpm for 5 s ⇒ temporarily drop target to 50 % FTP; restore at ≥ 60 rpm.
 - One gear, no shifting in ERG (Cog makes this moot).
 - If CP writes fail with insufficient auth/encryption: bond (spec lists Encryption on 0x2AD9); macOS just-works LE usually suffices.
+- Dropout: when the trainer link drops or Indoor Bike Data goes stale (> max(3 ticks, 3 s)), the engine pauses the rider (`pauseReason: 'trainer'`) instead of recording 0 W, and resumes on the next fresh sample, re-sending the ERG target.
