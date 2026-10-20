@@ -388,9 +388,12 @@ export async function resolveRiderConfigs(ctx: ApiContext, riders: RiderStart[])
     if (rider.hrmId !== undefined) {
       if (seenHrms.has(rider.hrmId)) throw new ApiError(400, `Duplicate HRM ${rider.hrmId}`);
       seenHrms.add(rider.hrmId);
+      // A strap only advertises once worn, so a known strap that is still asleep
+      // must not block Start; the engine attaches it when the hub discovers it.
       const hrm = ctx.hub.find(rider.hrmId);
-      if (!(hrm instanceof HrmDriver)) throw new ApiError(400, `Unknown HRM ${rider.hrmId}`);
-      hrmId = hrm.id;
+      const known = ctx.registry.list().some((d) => d.id === rider.hrmId && d.kind === 'hrm');
+      if (!(hrm instanceof HrmDriver) && !known) throw new ApiError(400, `Unknown HRM ${rider.hrmId}`);
+      hrmId = rider.hrmId;
     }
     configs.push({ profile, trainerId: trainer.id, hrmId, workout, workoutId: workout?.id });
   }
