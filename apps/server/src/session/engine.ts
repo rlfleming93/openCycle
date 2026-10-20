@@ -428,12 +428,25 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     };
     trainer?.on('sample', rider.onSample);
     trainer?.on('status', rider.onStatus);
-    hrm?.on('hr', rider.onHr);
     session.riders.push(rider);
+    if (hrm) this.attachHrm(hrm);
     // riderJoined fires for session-start riders too, so event-only consumers
     // (the co-op game) can build the roster from events alone.
     this.emit('event', { kind: 'riderJoined', riderId: cfg.profile.id, ts: this.now() });
     this.emitState();
+  }
+
+  /**
+   * Subscribe a strap to every active rider configured with it. Called at
+   * rider start and again when the hub discovers a strap that was still asleep
+   * when the session started. off-before-on keeps it idempotent.
+   */
+  attachHrm(hrm: HrmDriver): void {
+    for (const rider of this.current?.riders ?? []) {
+      if (rider.cfg.hrmId !== hrm.id || rider.state === 'stopped') continue;
+      hrm.off('hr', rider.onHr);
+      hrm.on('hr', rider.onHr);
+    }
   }
 
   private detachListeners(rider: RiderSession): void {

@@ -69,6 +69,8 @@ const workoutLibrary = new WorkoutLibrary(db, plansDir, (message) => app.log.war
 const ctx = { db, registry, engine, recorder, hub, workoutLibrary };
 registerRoutes(app, ctx);
 registerWs(app, ctx);
+// A strap picked for a running session may only wake (and be discovered) after Start.
+hub.on('hrm', (hrm) => engine.attachHrm(hrm));
 
 // Phase 5: Garmin import/sync + training/plan routes.
 const garmin = new GarminConnector(dataDir, app.log);
