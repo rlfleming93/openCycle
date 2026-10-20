@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 
 import { chromium, type Page } from 'playwright';
 
@@ -11,22 +11,19 @@ import { chromium, type Page } from 'playwright';
  * when a flow breaks, fix it here — nothing else depends on these internals.
  */
 export const GARMIN = {
-  /** SSO sign-in entry; the login script drives this in a headed browser. */
-  signInUrl: 'https://sso.garmin.com/sso/signin?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F',
-  /** Modern dashboard: the login script waits for this URL after sign-in. */
-  dashboardUrlGlob: 'https://connect.garmin.com/modern/**',
-  /** Upload page: FIT file picker, import button, and outcome indicators. */
-  importDataUrl: 'https://connect.garmin.com/modern/import-data',
-  fileInputSelector: 'input[type="file"]',
-  uploadButtonSelector: 'button:has-text("Import")',
-  uploadSuccessSelector: 'text=Success',
-  uploadFailureSelector: 'text=problem',
-  /** History pull: activitylist-service XHR fetched from the page context. */
+  /** Sign-in entry; Connect forwards to SSO and back to the /app dashboard. */
+  signInUrl: 'https://connect.garmin.com/signin/?service=https%3A%2F%2Fconnect.garmin.com%2Fapp%2F',
+  /** Signed-in Connect page. Connect now redirects /modern/ to /app/; accept both. */
+  dashboardUrl: /^https:\/\/connect\.garmin\.com\/(app|modern)\//,
+  /** Any signed-in /app page; it carries the CSRF meta tag the gc-api needs. */
+  appUrl: 'https://connect.garmin.com/app/import-data',
+  csrfMetaSelector: 'meta[name="csrf-token"]',
+  /** The web app's own JSON API, called from the signed-in page with its CSRF token. */
+  uploadUrl: '/gc-api/upload-service/upload/.fit',
   activityListUrl: (startDate: string, endDate: string): string =>
-    `https://connect.garmin.com/modern/proxy/activitylist-service/activities/search/activities?startDate=${startDate}&endDate=${endDate}&limit=1000&offset=0`,
+    `/gc-api/activitylist-service/activities/search/activities?startDate=${startDate}&endDate=${endDate}&limit=1000&offset=0`,
   /** Original-file ZIP download, one per activity id. */
-  downloadUrl: (activityId: number): string =>
-    `https://connect.garmin.com/modern/proxy/download-service/files/activity/${activityId}`,
+  downloadUrl: (activityId: number): string => `/gc-api/download-service/files/activity/${activityId}`,
 } as const;
 
 export function garminLoginStatePath(dataDir: string, riderId: string): string {
@@ -71,32 +68,36 @@ export class GarminConnector {
   }
 
   /**
-   * Uploads a finalized FIT file through the real import-data page: file
-   * picker → import button → success indicator (60 s cap). Throws with a
-   * descriptive message on missing login state or any step failure.
+   * Uploads a finalized FIT file through the web app's upload-service, the
+   * same call the import-data page makes. Garmin answers 409 for a file it
+   * already has; that counts as uploaded, so retries are idempotent.
    */
   async uploadFit(riderId: string, fitPath: string): Promise<void> {
     if (!existsSync(fitPath)) {
       throw new Error(`FIT file not found: ${fitPath}`);
     }
-    const page = await this.openPage(riderId);
+    const bytes = [...readFileSync(fitPath)];
+    const { page, csrf } = await this.openApp(riderId);
     try {
-      await page.goto(GARMIN.importDataUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-      await page.waitForSelector(GARMIN.fileInputSelector, { timeout: 30_000 });
-      await page.locator(GARMIN.fileInputSelector).first().setInputFiles(fitPath);
-      await page.locator(GARMIN.uploadButtonSelector).first().click({ timeout: 30_000 });
-      await page.waitForSelector(GARMIN.uploadSuccessSelector, { timeout: 60_000 });
+      const res = await page.evaluate(
+        async ({ url, token, name, data }) => {
+          const form = new FormData();
+          form.append('file', new Blob([new Uint8Array(data)]), name);
+          const r = await fetch(url, { method: 'POST', body: form, headers: { 'connect-csrf-token': token } });
+          return { status: r.status, body: await r.text() };
+        },
+        { url: GARMIN.uploadUrl, token: csrf, name: basename(fitPath), data: bytes },
+      );
+      if (res.status === 409) {
+        this.log.info(`garmin upload: already on Garmin: ${fitPath}`);
+        return;
+      }
+      if (res.status < 200 || res.status >= 300) {
+        throw new Error(`upload-service returned HTTP ${res.status}: ${res.body.slice(0, 300)}`);
+      }
       this.log.info(`garmin upload ok: ${fitPath}`);
     } catch (err) {
-      let detail = errorMessage(err);
-      try {
-        if ((await page.locator(GARMIN.uploadFailureSelector).count()) > 0) {
-          detail = 'Garmin reported an import problem';
-        }
-      } catch {
-        // Page closed mid-flight; keep the original error.
-      }
-      throw new Error(`Garmin FIT upload failed for ${fitPath}: ${detail}`);
+      throw new Error(`Garmin FIT upload failed for ${fitPath}: ${errorMessage(err)}`);
     } finally {
       await page.context().browser()?.close();
     }
@@ -108,23 +109,23 @@ export class GarminConnector {
    * downloaded per-activity through download-service.
    */
   async pullRecentActivities(riderId: string, sinceDays: number): Promise<Buffer[]> {
-    const page = await this.openPage(riderId);
+    const { page, csrf } = await this.openApp(riderId);
     try {
       const end = new Date();
       const start = new Date(end.getTime() - sinceDays * 24 * 60 * 60 * 1000);
       const listUrl = GARMIN.activityListUrl(dateOnly(start), dateOnly(end));
-      const activityIds = await page.evaluate(async (url: string): Promise<number[]> => {
-        const res = await fetch(url);
+      const activityIds = await page.evaluate(async ({ url, token }): Promise<number[]> => {
+        const res = await fetch(url, { headers: { 'connect-csrf-token': token } });
         if (!res.ok) throw new Error(`activitylist-service returned HTTP ${res.status}`);
         const body = (await res.json()) as { results?: Array<{ activityId?: unknown }> };
         return (body.results ?? []).flatMap((activity) =>
           typeof activity.activityId === 'number' ? [activity.activityId] : [],
         );
-      }, listUrl);
+      }, { url: listUrl, token: csrf });
       this.log.info(`garmin history pull: ${activityIds.length} activities since ${sinceDays} days`);
       const buffers: Buffer[] = [];
       for (const activityId of activityIds) {
-        buffers.push(await this.downloadActivity(page, activityId));
+        buffers.push(await this.downloadActivity(page, csrf, activityId));
       }
       return buffers;
     } finally {
@@ -132,31 +133,41 @@ export class GarminConnector {
     }
   }
 
-  /** Headless browser page carrying the rider's saved storage state. */
-  private async openPage(riderId: string): Promise<Page> {
+  /**
+   * Headless page on a signed-in /app page with the rider's saved session, plus
+   * the CSRF token gc-api calls need. An expired session lands on sign-in.
+   */
+  private async openApp(riderId: string): Promise<{ page: Page; csrf: string }> {
     const statePath = this.loginStatePath(riderId);
     if (!existsSync(statePath)) {
-      throw new Error(
-        `No Garmin login for rider ${riderId} (${statePath}); run pnpm garmin:login --rider ${riderId} first`,
-      );
+      throw new Error(`No Garmin login for rider ${riderId}; press Connect Garmin on the profile`);
     }
     const browser = await chromium.launch({ headless: true });
     try {
       const context = await browser.newContext({ storageState: statePath });
-      return await context.newPage();
+      const page = await context.newPage();
+      await page.goto(GARMIN.appUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      if (!GARMIN.dashboardUrl.test(page.url())) {
+        throw new Error('Garmin login expired; press Reconnect on the profile');
+      }
+      const csrf = await page
+        .locator(GARMIN.csrfMetaSelector)
+        .getAttribute('content', { timeout: 30_000 });
+      if (!csrf) throw new Error('Garmin page has no CSRF token');
+      return { page, csrf };
     } catch (err) {
       await browser.close();
       throw err;
     }
   }
 
-  private async downloadActivity(page: Page, activityId: number): Promise<Buffer> {
+  private async downloadActivity(page: Page, csrf: string, activityId: number): Promise<Buffer> {
     try {
-      const bytes = await page.evaluate(async (url: string): Promise<number[]> => {
-        const res = await fetch(url);
+      const bytes = await page.evaluate(async ({ url, token }): Promise<number[]> => {
+        const res = await fetch(url, { headers: { 'connect-csrf-token': token } });
         if (!res.ok) throw new Error(`download-service returned HTTP ${res.status}`);
         return Array.from(new Uint8Array(await res.arrayBuffer()));
-      }, GARMIN.downloadUrl(activityId));
+      }, { url: GARMIN.downloadUrl(activityId), token: csrf });
       return Buffer.from(bytes);
     } catch (err) {
       throw new Error(`failed to download Garmin activity ${activityId}: ${errorMessage(err)}`);

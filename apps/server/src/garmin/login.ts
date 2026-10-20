@@ -44,7 +44,7 @@ export async function runGarminLogin(
   try {
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto(GARMIN.signInUrl, { waitUntil: 'domcontentloaded' });
-    await page.waitForURL(GARMIN.dashboardUrlGlob, { timeout: 15 * 60 * 1000 });
+    await page.waitForURL(GARMIN.dashboardUrl, { timeout: 15 * 60 * 1000 });
     await context.storageState({ path: statePath });
   } finally {
     await context.close();
