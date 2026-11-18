@@ -56,7 +56,7 @@ interface UploadStatusRow {
 /**
  * Garmin login, upload, and history endpoints. Login and history work run in
  * the background after a 202 response. Login status stays in memory while the
- * saved Playwright state stays on disk; upload status stays with each ride.
+ * saved Garmin token pair stays on disk; upload status stays with each ride.
  */
 export function registerGarminRoutes(app: FastifyInstance, deps: GarminRouteDeps): void {
   const { db, queue, connector, engine, hasLogin, runLogin } = deps;

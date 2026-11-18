@@ -142,7 +142,9 @@ ln -s "$(pwd)/skills/workout-author" ~/.claude/skills/workout-author
 
 **Uploading rides.** Finished rides upload to Garmin Connect on their own when the rider's profile has auto-upload on and a saved login exists. If an upload fails, History shows the reason and a retry button. Garmin changes their login flow without warning, and when they do, uploads fail until this part gets fixed. It's kept separate so nothing else breaks with it.
 
-Log in once per rider: press **Connect Garmin** on the rider's profile (or on the last setup step). A browser opens. Sign in and do the MFA by hand. The first time, openCycle downloads the browser it uses for this, which takes a minute. The login is saved to `~/.opencycle/garmin/<riderId>.json`, never the database, and profiles don't store passwords. Connecting again replaces it.
+Log in once per rider: press **Connect Garmin** on the rider's profile (or on the last setup step). A Chrome window opens on Garmin's own sign-in page. Sign in and do the MFA by hand. When Garmin accepts it, the window closes by itself. Garmin turns away hidden browsers, so the window has to show. If Chrome isn't installed, openCycle downloads a browser for this the first time, which takes a minute.
+
+What gets saved is a token pair, the same kind of login Garmin's phone app keeps, not a password. It goes to `~/.opencycle/garmin/<riderId>.json`, readable only by you, never the database. The pair renews itself while rides upload, and each renewal replaces it. So don't share it with another program: whichever one renews second gets signed out. If an upload says Garmin turned down the saved login, press **Connect Garmin** again. Connecting again always replaces the pair.
 
 The same login also works from a terminal: `pnpm garmin:login --rider <profile-id>`.
 
