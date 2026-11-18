@@ -106,6 +106,40 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** Code Garmin puts on a duplicate in `detailedImportResult.failures`; the file is already there. */
+const DUPLICATE_CODE = 202;
+
+/**
+ * A 2xx upload answer can still refuse the file (a parse failure in `detailedImportResult.failures`)
+ * or be a challenge page; null means Garmin took it (or already had it).
+ */
+function uploadFailure(text: string): string | null {
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return `not a JSON answer: ${text.slice(0, 120)}`;
+  }
+  const failures = (body as { detailedImportResult?: { failures?: unknown } } | null)?.detailedImportResult?.failures;
+  if (!Array.isArray(failures)) return null;
+  for (const failure of failures) {
+    const messages = (failure as { messages?: unknown } | null)?.messages;
+    for (const message of Array.isArray(messages) ? messages : []) {
+      const { code, content } = (message ?? {}) as { code?: unknown; content?: unknown };
+      if (code !== DUPLICATE_CODE) return typeof content === 'string' ? content : `failure code ${String(code)}`;
+    }
+  }
+  return null;
+}
+
+/** The activity list is a bare array; older answers wrap it in `results`. Anything else is an error, not 0 rides. */
+function activityRows(body: unknown): unknown[] {
+  if (Array.isArray(body)) return body;
+  const results = (body as { results?: unknown } | null)?.results;
+  if (Array.isArray(results)) return results;
+  throw new Error('activitylist-service answered in an unknown shape');
+}
+
 function dateOnly(d: Date): string {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -270,7 +304,8 @@ export class GarminConnector {
       if (!res.ok) {
         throw new Error(`upload-service returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
       }
-      await res.body?.cancel();
+      const failure = uploadFailure(await res.text());
+      if (failure !== null) throw new Error(`upload-service answered HTTP ${res.status} but did not take the file: ${failure}`);
       this.log.info(`garmin upload ok: ${fitPath}`);
     } catch (err) {
       throw new Error(`Garmin FIT upload failed for ${fitPath}: ${errorMessage(err)}`);
@@ -288,7 +323,7 @@ export class GarminConnector {
         throw new Error(`activitylist-service returned HTTP ${res.status}`);
       }
       const body = (await res.json()) as unknown;
-      const rows: unknown[] = Array.isArray(body) ? body : [];
+      const rows = activityRows(body);
       for (const row of rows) {
         const id = (row as { activityId?: unknown } | null)?.activityId;
         if (typeof id === 'number') activityIds.push(id);
@@ -351,6 +386,9 @@ export class GarminConnector {
     if (typeof renewed === 'number') {
       throw new Error(`Garmin turned down the saved login (HTTP ${renewed}); ${RECONNECT}`);
     }
+    // A sign-in that landed during the grant is the newer login: keep it, drop the pair just minted.
+    const onDisk = await this.readTokens(riderId);
+    if (onDisk.refreshToken !== current.refreshToken) return onDisk;
     // Garmin has already retired the old refresh token, so the new pair is on disk before anything uses it.
     await writeTokens(this.loginStatePath(riderId), renewed);
     return renewed;
