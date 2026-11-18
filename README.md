@@ -67,6 +67,7 @@ The first time, a short setup walks you through it: Bluetooth, your rider (FTP a
 A few things worth knowing:
 
 - Quitting finishes any ride in progress first, so the FIT file is saved.
+- While a session runs, the Mac's screen stays on and the screen saver stays away. It goes back to normal when the session ends.
 - Logs are in `~/Library/Logs/openCycle/server.log`. If the server crashes, the app shows the last lines.
 - The app runs the code from this folder. After you pull changes, run `pnpm app` again. If you move the folder, rebuild.
 - Each rebuild re-signs the app, so macOS might ask for Bluetooth again. Say yes and it sticks.

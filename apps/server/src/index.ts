@@ -23,6 +23,7 @@ import { importGarminZip } from './garmin/zipImport.js';
 import { DeviceHub } from './devices/hub.js';
 import { DeviceRegistry } from './devices/registry.js';
 import { SessionEngine } from './session/engine.js';
+import { attachKeepAwake } from './session/keepAwake.js';
 import { Recorder } from './session/recorder.js';
 import { openDb } from './storage/db.js';
 import { registerWeb, resolveWebDir } from './web.js';
@@ -75,6 +76,7 @@ registerRoutes(app, ctx);
 registerWs(app, ctx);
 // A strap picked for a running session may only wake (and be discovered) after Start.
 hub.on('hrm', (hrm) => engine.attachHrm(hrm));
+attachKeepAwake(engine, (message) => app.log.warn({ message }, 'keep awake'));
 
 // Phase 5: Garmin import/sync + training/plan routes.
 const garmin = new GarminConnector(dataDir, app.log);
