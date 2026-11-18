@@ -1129,6 +1129,70 @@ describe('SessionEngine', () => {
     expect(rescueEvents(h.events)).toHaveLength(0);
   });
 
+  describe('idle auto-finish', () => {
+    const riderLeft = (h: Harness): SessionEvent[] => h.events.filter((e) => e.kind === 'riderLeft');
+
+    async function startSolo(h: Harness, w: Workout): Promise<FakeTrainer> {
+      const t1 = new FakeTrainer('t-r1');
+      h.trainers.set('t-r1', t1);
+      await h.engine.startSession([riderCfg('r1', 200, w)]);
+      return t1;
+    }
+
+    it('finishes the ride and the session 2 min after the workout ends with no pedaling', async () => {
+      const h = makeHarness();
+      const t1 = await startSolo(h, workout('w1', [steady(60, 0.5)]));
+      await ticks(60, () => t1.sample(150, 90));
+      expect(h.events.filter((e) => e.kind === 'workoutCompleted')).toHaveLength(1);
+
+      await ticks(119, () => t1.sample(0, 0));
+      expect(h.engine.session!.riders[0]!.state).toBe('riding');
+      await ticks(1, () => t1.sample(0, 0));
+
+      expect(riderLeft(h)).toEqual([{ kind: 'riderLeft', riderId: 'r1', ts: expect.any(Number) }]);
+      expect(h.recorder.finalizeCalls).toHaveLength(1);
+      expect(h.recorder.sessionEndedCalls).toHaveLength(1);
+      expect(h.engine.session).toBeNull();
+      expect(h.endedCount).toBe(1);
+    });
+
+    it('mid-workout: 14 min without pedaling keeps the ride, 15 min finishes it', async () => {
+      const h = makeHarness();
+      const t1 = await startSolo(h, workout('w1', [steady(3600, 0.5)]));
+      await ticks(5, () => t1.sample(150, 90));
+      await ticks(14 * 60, () => t1.sample(0, 0));
+      expect(h.engine.session!.riders[0]!.state).toBe('riding');
+      expect(riderLeft(h)).toHaveLength(0);
+
+      await ticks(60, () => t1.sample(0, 0));
+      expect(riderLeft(h)).toHaveLength(1);
+      expect(h.engine.session).toBeNull();
+    });
+
+    it('a trainer dropout pause finishes after 15 min', async () => {
+      const h = makeHarness();
+      const t1 = await startSolo(h, workout('w1', [steady(3600, 0.5)]));
+      await ticks(5, () => t1.sample(150, 90));
+      t1.status('disconnected');
+      await ticks(15 * 60 - 1);
+      expect(h.engine.session!.riders[0]).toMatchObject({ state: 'paused', pauseReason: 'trainer' });
+
+      await ticks(1);
+      expect(riderLeft(h)).toHaveLength(1);
+      expect(h.engine.session).toBeNull();
+    });
+
+    it('pedaling resets the idle clock', async () => {
+      const h = makeHarness();
+      const t1 = await startSolo(h, workout('w1', [steady(3600, 0.5)]));
+      await ticks(14 * 60, () => t1.sample(0, 0));
+      await ticks(1, () => t1.sample(120, 60));
+      await ticks(14 * 60, () => t1.sample(0, 0));
+      expect(h.engine.session!.riders[0]!.state).toBe('riding');
+      expect(riderLeft(h)).toHaveLength(0);
+    });
+  });
+
   describe('legs', () => {
     it('scores a 60 s burn ridden on target as a clean survey', async () => {
       const h = makeHarness();

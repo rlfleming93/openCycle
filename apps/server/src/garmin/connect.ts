@@ -154,6 +154,8 @@ export class GarminConnector {
         .locator(GARMIN.csrfMetaSelector)
         .getAttribute('content', { timeout: 30_000 });
       if (!csrf) throw new Error('Garmin page has no CSRF token');
+      // Keep any cookies Garmin renewed on this load, so the saved login lasts longer.
+      await context.storageState({ path: statePath });
       return { page, csrf };
     } catch (err) {
       await browser.close();

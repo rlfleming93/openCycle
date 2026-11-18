@@ -31,6 +31,7 @@ The game only reads the trainer and the workout. It never changes your targets, 
 - **Cadence and torque.** In ERG the watts stay put, so the ride screen shows cadence on a dial (green from 80 to 100 rpm) and torque per pedal stroke in Nm. Spin faster and the torque bar drops.
 - **Your own devices.** Each profile picks its trainer and heart rate strap, and you can rename devices ("Sam's KICKR" beats "KICKR CORE 1A2B"). Pick the rider in Session and both fill in, with a live Connected chip.
 - **Dropouts pause the ride.** If the trainer drops, the ride pauses with a red banner and picks up again when the trainer is back. No fake zeros go into the FIT file.
+- **Rides finish on their own.** You don't have to press End. If nobody pedals for 2 minutes after the workout ends, or for 15 minutes any other time, the ride finishes and uploads to Garmin.
 - **Power numbers.** Normalized power uses the standard 30-second method. The FIT file carries normalized power, IF, TSS, total work and average cadence.
 - **Weight in kg or lb.**
 

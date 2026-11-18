@@ -79,6 +79,10 @@ const GUARD_TARGET_FTP_FRACTION = 0.5;
 /** Rescue: helper power/target must hold this ratio for RESCUE_SURGE_S. */
 const RESCUE_RATIO = 1.1;
 const RESCUE_SURGE_S = 15;
+/** Riders rarely press End: a finished workout ends after 2 min without pedaling… */
+export const IDLE_FINISH_AFTER_WORKOUT_MS = 2 * 60_000;
+/** …and any other ride (mid-workout, free ride, any pause) after 15 min, room for a real break. */
+export const IDLE_FINISH_MS = 15 * 60_000;
 
 function rescuePairKey(helperId: string, riderId: string): string {
   return `${helperId}\0${riderId}`;
@@ -113,6 +117,10 @@ interface RiderSession {
   elapsedS: number;
   distanceM: number;
   rideId: string;
+  /** Wall-clock ts of the last riding tick with cadence or power; startedAt initially. */
+  lastPedalTs: number;
+  /** In-flight stop (finalize); a second stop joins it instead of finalizing twice. */
+  stopping: Promise<void> | null;
   /** Completed source-step laps as wall-clock ranges, for FIT lap encoding. */
   laps: Array<{ startTs: number; endTs: number; ridingS: number }>;
   /** Wall-clock ts at which the current (open) lap began; startedAt initially. */
@@ -198,6 +206,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
   private readonly recorder: RecorderLike;
   private readonly tickMs: number;
   private readonly now: () => number;
+  private readonly log: (message: string) => void;
   private current: SessionState | null = null;
   private timer: NodeJS.Timeout | null = null;
 
@@ -206,12 +215,14 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     recorder: RecorderLike;
     tickMs?: number;
     now?: () => number;
+    log?: (message: string) => void;
   }) {
     super();
     this.findDriver = opts.findDriver;
     this.recorder = opts.recorder;
     this.tickMs = opts.tickMs ?? DEFAULT_TICK_MS;
     this.now = opts.now ?? Date.now;
+    this.log = opts.log ?? (() => {});
   }
 
   /** Point-in-time snapshot of the active session, or null after stopSession. */
@@ -274,6 +285,14 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
   async stopRider(riderId: string): Promise<void> {
     const rider = this.findRider(riderId);
     if (!rider || rider.state === 'stopped') return;
+    rider.stopping ??= this.finalizeRider(rider).finally(() => {
+      rider.stopping = null;
+    });
+    await rider.stopping;
+  }
+
+  private async finalizeRider(rider: RiderSession): Promise<void> {
+    const riderId = rider.cfg.profile.id;
     const priorState = rider.state;
     const priorPauseReason = rider.pauseReason;
     const endedAt = this.now();
@@ -403,6 +422,8 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
       state: 'riding',
       pauseReason: undefined,
       startedAt,
+      lastPedalTs: startedAt,
+      stopping: null,
       elapsedS: 0,
       distanceM: 0,
       rideId: this.recorder.startRide({
@@ -463,6 +484,12 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     const samples: TelemetrySample[] = [];
     const events: SessionEvent[] = [];
     for (const rider of session.riders) {
+      if (rider.state === 'stopped' || rider.stopping) continue;
+      // Checked before the riding gate: a paused rider (manual or trainer) finishes too.
+      if (this.idleTooLong(rider, nowTs)) {
+        this.autoFinish(session, rider);
+        continue;
+      }
       if (rider.state !== 'riding') continue;
       // A lost trainer pauses the rider before a 0 W dropout row is recorded
       // or fed to the death-spiral guard; its next fresh sample resumes it.
@@ -478,6 +505,31 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     if (samples.length > 0) this.emit('telemetry', samples);
     for (const event of events) this.emit('event', event);
     this.emitState();
+  }
+
+  /** No pedaling for the idle limit: 2 min once the rider's workout is done, else 15 min. */
+  private idleTooLong(rider: RiderSession, nowTs: number): boolean {
+    const workoutDone = rider.cfg.workout !== undefined && rider.flat === null;
+    const limitMs = workoutDone ? IDLE_FINISH_AFTER_WORKOUT_MS : IDLE_FINISH_MS;
+    return nowTs - rider.lastPedalTs >= limitMs;
+  }
+
+  /**
+   * Finish an idle rider through stopRider (riderLeft → Garmin upload) without
+   * blocking the tick; a failure is logged and the next tick retries. The last
+   * rider out ends the session so the next ride can start.
+   */
+  private autoFinish(session: SessionState, rider: RiderSession): void {
+    const riderId = rider.cfg.profile.id;
+    this.stopRider(riderId)
+      .then(async () => {
+        // timer === null: a stopSession is already under way.
+        if (this.current !== session || this.timer === null) return;
+        if (session.riders.every((r) => r.state === 'stopped')) await this.stopSession();
+      })
+      .catch((err: unknown) => {
+        this.log(`auto-finish of idle rider ${riderId} failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
   }
 
   private advanceRider(
@@ -501,6 +553,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     // emitted sample must satisfy TelemetrySampleSchema.
     const power = Math.max(0, trainerSample.powerW);
     const cadence = Math.max(0, trainerSample.cadenceRpm);
+    if (cadence > 0 || power > 0) rider.lastPedalTs = nowTs;
     const target = this.applyGuard(rider, stepTarget, power, cadence, dt, nowTs, events);
     // Survey accounting: leg seconds count only after the ERG settle window,
     // and on-target seconds additionally need an inactive guard and power

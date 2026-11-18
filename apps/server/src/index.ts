@@ -64,7 +64,11 @@ hub.on('hrm', (hrm) => {
 });
 
 const recorder = new Recorder(db, dataDir);
-const engine = new SessionEngine({ findDriver: (id) => hub.find(id), recorder });
+const engine = new SessionEngine({
+  findDriver: (id) => hub.find(id),
+  recorder,
+  log: (message) => app.log.warn({ message }, 'session engine'),
+});
 const workoutLibrary = new WorkoutLibrary(db, plansDir, (message) => app.log.warn({ message }, 'workout library'));
 const ctx = { db, registry, engine, recorder, hub, workoutLibrary };
 registerRoutes(app, ctx);

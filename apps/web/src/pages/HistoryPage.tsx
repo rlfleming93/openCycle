@@ -124,79 +124,81 @@ export function HistoryPage() {
       ) : filtered.length === 0 ? (
         <p className="mt-8 text-dim">No rides for this rider yet.</p>
       ) : (
-        <table className="mt-6 w-full text-left">
-          <thead>
-            <tr className="text-xs uppercase tracking-wider text-dim">
-              <th className="pb-3 pr-4">Date</th>
-              <th className="pb-3 pr-4">Rider</th>
-              <th className="pb-3 pr-4">Workout</th>
-              <th className="pb-3 pr-4">Duration</th>
-              <th className="pb-3 pr-4">Distance</th>
-              <th className="pb-3 pr-4">Weighted Power</th>
-              <th className="pb-3 pr-4">Load</th>
-              <th className="pb-3 text-right">FIT</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((ride) => {
-              const summary = parseSummary(ride.summary);
-              const riderName = nameById.get(ride.riderId) ?? 'Unknown rider';
-              const fitName = `${riderName}-${new Date(ride.startedAt).toISOString().slice(0, 10)}.fit`;
-              return (
-                <tr
-                  key={ride.id}
-                  onClick={() => navigate(`/history/${ride.id}`)}
-                  className="cursor-pointer border-t border-line text-sm hover:bg-ink/5"
-                >
-                  <td className="py-3 pr-4 text-ink/90">{formatDate(ride.startedAt)}</td>
-                  <td className="py-3 pr-4 text-ink">{riderName}</td>
-                  <td className="py-3 pr-4 text-dim">{ride.workoutName ?? 'Free ride'}</td>
-                  <td className="py-3 pr-4 tabular-nums text-ink/90">
-                    {summary === null ? '—' : formatDuration(summary.durationS)}
-                  </td>
-                  <td className="py-3 pr-4 tabular-nums text-ink/90">
-                    {summary === null ? '—' : `${(summary.distanceM / 1000).toFixed(1)} km`}
-                  </td>
-                  <td className="py-3 pr-4 tabular-nums text-ink/90">
-                    {summary === null ? '—' : `${Math.round(summary.weightedPowerW)} W`}
-                  </td>
-                  <td className="py-3 pr-4 tabular-nums text-ink/90">
-                    {summary === null || summary.trainingLoad === null ? '—' : summary.trainingLoad.toFixed(1)}
-                  </td>
-                  <td className="py-3 text-right">
-                    {ride.endedAt === null ? (
-                      <span className="text-dim/70">—</span>
-                    ) : (
-                      <a
-                        href={fitUrl(ride.id)}
-                        download={fitName}
-                        title="Download FIT"
-                        aria-label={`Download FIT for ${riderName}`}
-                        onClick={(event) => event.stopPropagation()}
-                        className="inline-flex rounded-[8px] p-2 text-dim hover:bg-ink/10 hover:text-on"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="h-4 w-4"
+        <div className="mt-6 overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="text-xs uppercase tracking-wider text-dim">
+                <th className="pb-3 pr-4">Date</th>
+                <th className="pb-3 pr-4">Rider</th>
+                <th className="pb-3 pr-4">Workout</th>
+                <th className="pb-3 pr-4">Duration</th>
+                <th className="pb-3 pr-4">Distance</th>
+                <th className="pb-3 pr-4">Weighted Power</th>
+                <th className="pb-3 pr-4">Load</th>
+                <th className="pb-3 text-right">FIT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((ride) => {
+                const summary = parseSummary(ride.summary);
+                const riderName = nameById.get(ride.riderId) ?? 'Unknown rider';
+                const fitName = `${riderName}-${new Date(ride.startedAt).toISOString().slice(0, 10)}.fit`;
+                return (
+                  <tr
+                    key={ride.id}
+                    onClick={() => navigate(`/history/${ride.id}`)}
+                    className="cursor-pointer border-t border-line text-sm hover:bg-ink/5"
+                  >
+                    <td className="py-3 pr-4 text-ink/90">{formatDate(ride.startedAt)}</td>
+                    <td className="py-3 pr-4 text-ink">{riderName}</td>
+                    <td className="py-3 pr-4 text-dim">{ride.workoutName ?? 'Free ride'}</td>
+                    <td className="py-3 pr-4 tabular-nums text-ink/90">
+                      {summary === null ? '—' : formatDuration(summary.durationS)}
+                    </td>
+                    <td className="py-3 pr-4 tabular-nums text-ink/90">
+                      {summary === null ? '—' : `${(summary.distanceM / 1000).toFixed(1)} km`}
+                    </td>
+                    <td className="py-3 pr-4 tabular-nums text-ink/90">
+                      {summary === null ? '—' : `${Math.round(summary.weightedPowerW)} W`}
+                    </td>
+                    <td className="py-3 pr-4 tabular-nums text-ink/90">
+                      {summary === null || summary.trainingLoad === null ? '—' : summary.trainingLoad.toFixed(1)}
+                    </td>
+                    <td className="py-3 text-right">
+                      {ride.endedAt === null ? (
+                        <span className="text-dim/70">—</span>
+                      ) : (
+                        <a
+                          href={fitUrl(ride.id)}
+                          download={fitName}
+                          title="Download FIT"
+                          aria-label={`Download FIT for ${riderName}`}
+                          onClick={(event) => event.stopPropagation()}
+                          className="inline-flex rounded-[8px] p-2 text-dim hover:bg-ink/10 hover:text-on"
                         >
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="7 10 12 15 17 10" />
-                          <line x1="12" y1="15" x2="12" y2="3" />
-                        </svg>
-                      </a>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="h-4 w-4"
+                          >
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
