@@ -49,7 +49,7 @@ const PANEL_STYLE = {
 } as CSSProperties;
 
 /** Kind tone: the same reading the route strip's leg bar used. */
-const KIND_TONE: Record<LegKind, { swatch: string; bar: string }> = {
+export const KIND_TONE: Record<LegKind, { swatch: string; bar: string }> = {
   burn: { swatch: 'bg-over', bar: 'bg-over' },
   climb: { swatch: 'bg-over/60', bar: 'bg-over/60' },
   cruise: { swatch: 'bg-under', bar: 'bg-under' },
@@ -163,23 +163,28 @@ export default function WorkoutSidebar() {
   );
 }
 
-/** Whole-workout bar chart: duration across, %FTP up, dimmed behind the playhead. */
-function Profile({
+/**
+ * Whole-workout bar chart: duration across, %FTP up, dimmed behind the playhead.
+ * `className` sizes the track; the default is the sidebar's vh-based band.
+ */
+export function Profile({
   bars,
   scale,
   playhead,
   label,
+  className = 'mt-[0.7vh] h-[5vh]',
 }: {
   bars: ProfileBar[];
   scale: number;
   playhead: number;
   label: string;
+  className?: string;
 }) {
   return (
     <div
       role="img"
       aria-label={label}
-      className="relative mt-[0.7vh] h-[5vh] shrink-0 overflow-hidden rounded-[4px] bg-void/45"
+      className={`relative shrink-0 overflow-hidden rounded-[4px] bg-void/45 ${className}`}
     >
       {GRID_PCT.map((pct) => {
         const top = (1 - pct / scale) * 100;

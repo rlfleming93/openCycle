@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import GameCanvas from '../components/GameCanvas.js';
 import MediaPanel from '../components/MediaPanel.js';
@@ -7,6 +7,7 @@ import ArrivalCard from '../components/hud/ArrivalCard.js';
 import ControlsTray from '../components/hud/ControlsTray.js';
 import DestinationMarker, { type DestinationPoint } from '../components/hud/DestinationMarker.js';
 import LegToast from '../components/hud/LegToast.js';
+import PhoneRemote from '../components/hud/PhoneRemote.js';
 import RiderCard from '../components/hud/RiderCard.js';
 import RouteStrip from '../components/hud/RouteStrip.js';
 import StatusCluster from '../components/hud/StatusCluster.js';
@@ -18,6 +19,22 @@ import { useAppStore } from '../store.js';
 const ERROR_BANNER_MS = 8000;
 
 /**
+ * Phones (portrait, or landscape with a short viewport) get the remote layout;
+ * the Mac/TV never matches either side.
+ */
+const PHONE_QUERY = '(max-width: 639px), (max-height: 479px)';
+
+function subscribePhone(onChange: () => void): () => void {
+  const query = window.matchMedia(PHONE_QUERY);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+}
+
+function isPhone(): boolean {
+  return window.matchMedia(PHONE_QUERY).matches;
+}
+
+/**
  * Full-screen ride page (the nav is hidden by the router while a session
  * runs). Pure store-driven render: no fetches — everything comes from the
  * WS-fed zustand store.
@@ -27,13 +44,15 @@ const ERROR_BANNER_MS = 8000;
  * in the top ~11%, the workout sidebar down the left band, rider cards in the
  * bottom ~28%, so the destination stays clear in the upper-middle third. Off:
  * the plain per-rider dashboard. Both modes share the status cluster, the
- * controls tray and the media panel.
+ * controls tray and the media panel. On a phone both give way to the
+ * PhoneRemote layout, which never mounts the canvas.
  */
 export default function RidePage() {
   const session = useAppStore((s) => s.session);
   const lastError = useAppStore((s) => s.lastError);
   const spaceGame = useAppStore((s) => s.spaceGame);
   const [mediaOpen, setMediaOpen] = useState(false);
+  const phone = useSyncExternalStore(subscribePhone, isPhone);
   const [errorDismissed, setErrorDismissed] = useState(false);
   // Destination screen point, written by the renderer hook every frame and
   // read by DestinationMarker's own RAF loop (never React state).
@@ -65,6 +84,16 @@ export default function RidePage() {
   const progress = lastProgress.current < 0 ? 0.5 : Math.min(1, Math.max(0, lastProgress.current));
   const riderCount = session.riders.length;
 
+  if (phone) {
+    return (
+      <div className="fixed inset-0 overflow-hidden bg-void text-ink">
+        <PhoneRemote session={session} />
+        {lastError !== null && !errorDismissed && (
+          <ErrorBanner message={lastError} onDismiss={() => setErrorDismissed(true)} />
+        )}
+      </div>
+    );
+  }
   if (!spaceGame) {
     return (
       <div className="relative flex h-screen w-screen flex-col bg-void pt-[clamp(76px,6.25vw,200px)] text-ink">
@@ -143,12 +172,12 @@ export default function RidePage() {
 
 function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
-    <div className="absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-4 bg-danger px-6 py-3 text-2xl font-semibold text-void">
+    <div className="absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-4 bg-danger px-6 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-lg font-semibold text-void sm:text-2xl">
       <span className="min-w-0 truncate">{message}</span>
       <button
         type="button"
         onClick={onDismiss}
-        className="shrink-0 rounded-[8px] border border-void/40 px-4 py-1 text-xl font-bold text-void hover:bg-void/10"
+        className="shrink-0 rounded-[8px] border border-void/40 px-4 py-1 text-xl font-bold text-void hover:bg-void/10 pointer-coarse:min-h-11"
       >
         Dismiss
       </button>

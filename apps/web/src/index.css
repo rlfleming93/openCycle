@@ -56,6 +56,13 @@
     height: 100%;
   }
 
+  /* viewport-fit=cover (index.html) lets a phone draw under the notch: keep the
+     pages inside the side insets. Both are 0 on the Mac and the TV. */
+  #root {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
   html {
     color-scheme: dark;
     -webkit-tap-highlight-color: transparent;

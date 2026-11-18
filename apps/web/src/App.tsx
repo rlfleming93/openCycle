@@ -46,7 +46,7 @@ function NavBar() {
 
   return (
     <header className="border-b border-line bg-deep">
-      <nav className="mx-auto flex h-16 max-w-7xl flex-wrap items-center gap-x-7 gap-y-1 px-6">
+      <nav className="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center gap-x-7 gap-y-1 px-6 py-2">
         <span className="font-display text-2xl font-bold uppercase tracking-[0.06em] text-ink">openCycle</span>
         {NAV_LINKS.map((link) => (
           <NavLink key={link.to} to={link.to} end={link.end} className={linkClass}>

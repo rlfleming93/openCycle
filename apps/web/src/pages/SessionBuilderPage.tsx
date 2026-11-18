@@ -383,7 +383,7 @@ export default function SessionBuilderPage() {
             type="button"
             aria-pressed={spaceGame}
             onClick={() => setSpaceGame(true)}
-            className={`px-4 py-2 font-display text-sm uppercase tracking-[0.06em] ${
+            className={`px-4 py-2 font-display text-sm uppercase tracking-[0.06em] max-sm:min-h-11 max-sm:px-5 ${
               spaceGame ? 'bg-on font-semibold text-void' : 'bg-deep text-dim hover:bg-ink/10 hover:text-ink'
             }`}
           >
@@ -393,7 +393,7 @@ export default function SessionBuilderPage() {
             type="button"
             aria-pressed={!spaceGame}
             onClick={() => setSpaceGame(false)}
-            className={`px-4 py-2 font-display text-sm uppercase tracking-[0.06em] ${
+            className={`px-4 py-2 font-display text-sm uppercase tracking-[0.06em] max-sm:min-h-11 max-sm:px-5 ${
               spaceGame ? 'bg-deep text-dim hover:bg-ink/10 hover:text-ink' : 'bg-on font-semibold text-void'
             }`}
           >
@@ -403,19 +403,20 @@ export default function SessionBuilderPage() {
         <p className="mt-1 text-sm text-dim">Fly each workout as a voyage leg. Free rides cruise open space.</p>
       </div>
 
-      <div className="mt-4">
-        <div className="flex flex-wrap items-center gap-4">
+      {/* On a phone the actions stick to the bottom edge, so Start never sits below the fold. */}
+      <div className="mt-4 max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:-mx-6 max-sm:border-t max-sm:border-line max-sm:bg-void max-sm:px-6 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:pt-3">
+        <div className="flex flex-wrap items-center gap-4 max-sm:gap-3">
           <button
             onClick={addRow}
             disabled={rows.length >= trainers.length}
-            className="rounded-[8px] border border-line px-4 py-2 text-sm text-ink/90 hover:bg-ink/5 disabled:opacity-40"
+            className="rounded-[8px] border border-line px-4 py-2 text-sm text-ink/90 hover:bg-ink/5 disabled:opacity-40 max-sm:min-h-11"
           >
             Add rider
           </button>
           <button
             onClick={() => void handleStart()}
             disabled={!ready || starting}
-            className="rounded-[8px] bg-on px-6 py-2 font-medium text-void hover:bg-on/85 disabled:opacity-40"
+            className="rounded-[8px] bg-on px-6 py-2 font-medium text-void hover:bg-on/85 disabled:opacity-40 max-sm:min-h-11 max-sm:flex-1"
           >
             {starting ? 'Starting…' : 'Start session'}
           </button>
