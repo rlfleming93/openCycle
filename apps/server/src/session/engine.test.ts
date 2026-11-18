@@ -1191,6 +1191,19 @@ describe('SessionEngine', () => {
       expect(h.engine.session!.riders[0]!.state).toBe('riding');
       expect(riderLeft(h)).toHaveLength(0);
     });
+
+    it('a break that spans the workout end gets the full 2 min after the finish', async () => {
+      const h = makeHarness();
+      const t1 = await startSolo(h, workout('w1', [steady(600, 0.5)]));
+      await ticks(420, () => t1.sample(150, 90));
+      await ticks(180, () => t1.sample(0, 0));
+      expect(h.events.filter((e) => e.kind === 'workoutCompleted')).toHaveLength(1);
+      await ticks(110, () => t1.sample(0, 0));
+      expect(riderLeft(h)).toHaveLength(0);
+
+      await ticks(15, () => t1.sample(0, 0));
+      expect(riderLeft(h)).toHaveLength(1);
+    });
   });
 
   describe('legs', () => {

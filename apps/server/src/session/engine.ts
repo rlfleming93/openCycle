@@ -83,6 +83,7 @@ const RESCUE_SURGE_S = 15;
 export const IDLE_FINISH_AFTER_WORKOUT_MS = 2 * 60_000;
 /** …and any other ride (mid-workout, free ride, any pause) after 15 min, room for a real break. */
 export const IDLE_FINISH_MS = 15 * 60_000;
+const FINISH_RETRY_MS = 30_000;
 
 function rescuePairKey(helperId: string, riderId: string): string {
   return `${helperId}\0${riderId}`;
@@ -121,6 +122,8 @@ interface RiderSession {
   lastPedalTs: number;
   /** In-flight stop (finalize); a second stop joins it instead of finalizing twice. */
   stopping: Promise<void> | null;
+  /** After a failed auto-finish, the next try waits until this ts (each try rewrites the whole FIT). */
+  finishRetryTs: number;
   /** Completed source-step laps as wall-clock ranges, for FIT lap encoding. */
   laps: Array<{ startTs: number; endTs: number; ridingS: number }>;
   /** Wall-clock ts at which the current (open) lap began; startedAt initially. */
@@ -424,6 +427,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
       startedAt,
       lastPedalTs: startedAt,
       stopping: null,
+      finishRetryTs: 0,
       elapsedS: 0,
       distanceM: 0,
       rideId: this.recorder.startRide({
@@ -485,15 +489,19 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     const events: SessionEvent[] = [];
     for (const rider of session.riders) {
       if (rider.state === 'stopped' || rider.stopping) continue;
+      const trainerSample = rider.state === 'riding' ? this.liveTrainerSample(rider, nowTs) : undefined;
+      // Pedaling right now is never idle, even after a wall-clock jump or a long pause just resumed.
+      if (trainerSample !== undefined && (trainerSample.cadenceRpm > 0 || trainerSample.powerW > 0)) {
+        rider.lastPedalTs = nowTs;
+      }
       // Checked before the riding gate: a paused rider (manual or trainer) finishes too.
-      if (this.idleTooLong(rider, nowTs)) {
+      if (nowTs >= rider.finishRetryTs && this.idleTooLong(rider, nowTs)) {
         this.autoFinish(session, rider);
         continue;
       }
       if (rider.state !== 'riding') continue;
       // A lost trainer pauses the rider before a 0 W dropout row is recorded
       // or fed to the death-spiral guard; its next fresh sample resumes it.
-      const trainerSample = this.liveTrainerSample(rider, nowTs);
       if (trainerSample === undefined) {
         this.pauseForTrainer(rider);
         continue;
@@ -528,6 +536,7 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
         if (session.riders.every((r) => r.state === 'stopped')) await this.stopSession();
       })
       .catch((err: unknown) => {
+        rider.finishRetryTs = this.now() + FINISH_RETRY_MS;
         this.log(`auto-finish of idle rider ${riderId} failed: ${err instanceof Error ? err.message : String(err)}`);
       });
   }
@@ -553,7 +562,6 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
     // emitted sample must satisfy TelemetrySampleSchema.
     const power = Math.max(0, trainerSample.powerW);
     const cadence = Math.max(0, trainerSample.cadenceRpm);
-    if (cadence > 0 || power > 0) rider.lastPedalTs = nowTs;
     const target = this.applyGuard(rider, stepTarget, power, cadence, dt, nowTs, events);
     // Survey accounting: leg seconds count only after the ERG settle window,
     // and on-target seconds additionally need an inactive guard and power
@@ -696,6 +704,8 @@ export class SessionEngine extends EventEmitter<EngineEvents> {
         });
         events.push({ kind: 'workoutCompleted', riderId: rider.cfg.profile.id, ts: nowTs });
         rider.flat = null;
+        // The 2 min after-workout limit starts at the finish, not at a break that began earlier.
+        rider.lastPedalTs = nowTs;
         break;
       }
       events.push({
