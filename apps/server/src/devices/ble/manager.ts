@@ -1,26 +1,30 @@
-// BLE manager: scans for FTMS trainers and HRS straps and emits one driver
-// instance per discovered peripheral id. Runs on @stoprocent/noble
-// (CoreBluetooth); a fake noble can be injected for tests.
+// BLE manager: scans for FTMS trainers, HRS straps and the Zwift Ride's left
+// handlebar controller, and emits one driver instance per discovered
+// peripheral id. Runs on @stoprocent/noble (CoreBluetooth); a fake noble can
+// be injected for tests.
 
 import { EventEmitter } from 'node:events';
 import noble, { type AdapterState as NobleAdapterState, type Noble, type Peripheral } from '@stoprocent/noble';
 import { HrmDriver, TrainerDriver } from '../driver.js';
 import { FTMS_SERVICE_UUID } from './ftms.js';
 import { HRS_SERVICE_UUID } from './hrs.js';
+import { BleZwiftRideDriver } from './controller.js';
 import { BleHrmDriver, BleTrainerDriver, isUuid } from './trainer.js';
+import { ZWIFT_LEGACY_SERVICE_UUID, ZWIFT_RIDE_SERVICE_UUID, isRideLeftAdvert } from './zwiftRide.js';
 
-const SCAN_SERVICE_UUIDS = [FTMS_SERVICE_UUID, HRS_SERVICE_UUID];
+const SCAN_SERVICE_UUIDS = [FTMS_SERVICE_UUID, HRS_SERVICE_UUID, ZWIFT_RIDE_SERVICE_UUID, ZWIFT_LEGACY_SERVICE_UUID];
 
 export interface BleManagerEvents {
   trainer: [TrainerDriver];
   hrm: [HrmDriver];
+  controller: [BleZwiftRideDriver];
   adapter: [NobleAdapterState];
   state: [string];
 }
 
 export class BleManager extends EventEmitter<BleManagerEvents> {
   private readonly noble: Noble;
-  private readonly drivers = new Map<string, TrainerDriver | HrmDriver>();
+  private readonly drivers = new Map<string, TrainerDriver | HrmDriver | BleZwiftRideDriver>();
   private adapter: NobleAdapterState;
   private scanning = false;
   private scanRequested = false;
@@ -50,7 +54,7 @@ export class BleManager extends EventEmitter<BleManagerEvents> {
     }
   }
 
-  /** Request FTMS + HRS scanning now or when the adapter becomes available. */
+  /** Request trainer, strap and controller scanning now or when the adapter becomes available. */
   async startScan(): Promise<void> {
     this.scanRequested = true;
     if (this.adapter !== 'poweredOn') return;
@@ -114,19 +118,27 @@ export class BleManager extends EventEmitter<BleManagerEvents> {
       const driver = new BleTrainerDriver(peripheral);
       this.drivers.set(peripheral.id, driver);
       this.emit('trainer', driver);
-    } else {
+    } else if (kind === 'hrm') {
       const driver = new BleHrmDriver(peripheral);
       this.drivers.set(peripheral.id, driver);
       this.emit('hrm', driver);
+    } else {
+      const driver = new BleZwiftRideDriver(peripheral);
+      this.drivers.set(peripheral.id, driver);
+      this.emit('controller', driver);
     }
   };
 }
 
-/** Trainer (1826) wins over hrm (180d) when both are advertised. */
-function classifyPeripheral(peripheral: Peripheral): 'trainer' | 'hrm' | null {
+/**
+ * Trainer (1826) wins over hrm (180d) when both are advertised. A Zwift Ride
+ * controller is told by its manufacturer data; only the left one is used.
+ */
+function classifyPeripheral(peripheral: Peripheral): 'trainer' | 'hrm' | 'controller' | null {
   const uuids = peripheral.advertisement?.serviceUuids ?? [];
   const has = (short: string): boolean => uuids.some((uuid) => isUuid(uuid, short));
   if (has(FTMS_SERVICE_UUID)) return 'trainer';
   if (has(HRS_SERVICE_UUID)) return 'hrm';
+  if (isRideLeftAdvert(peripheral.advertisement?.manufacturerData)) return 'controller';
   return null;
 }

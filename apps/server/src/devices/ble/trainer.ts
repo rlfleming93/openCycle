@@ -38,7 +38,7 @@ export function isUuid(uuid: string, short: string): boolean {
   return normalized === short || normalized === `0000${short}00001000800000805f9b34fb`;
 }
 
-function messageOf(err: unknown): string {
+export function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
@@ -51,7 +51,7 @@ function messageOf(err: unknown): string {
  * can drop. An op issued after disconnect would never settle and would
  * wedge the queue for every device.
  */
-function guardedGatt<T>(peripheral: Peripheral, op: () => Promise<T>): Promise<T> {
+export function guardedGatt<T>(peripheral: Peripheral, op: () => Promise<T>): Promise<T> {
   return gattQueue.run(() => {
     if (peripheral.state !== 'connected') throw new Error('peripheral disconnected');
     return op();
@@ -62,7 +62,7 @@ function guardedGatt<T>(peripheral: Peripheral, op: () => Promise<T>): Promise<T
  * Auto-reconnect policy: exponential backoff (1 s, 2 s, 4 s … capped at
  * 30 s) until disconnect() was called intentionally.
  */
-class BleReconnect {
+export class BleReconnect {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
   intentional = false;

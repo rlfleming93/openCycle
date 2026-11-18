@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { AdapterState } from '@opencycle/shared';
+import type { BleZwiftRideDriver } from './ble/controller.js';
 import { BleManager } from './ble/manager.js';
 import { createSimDevices } from './sim/index.js';
 import type { DeviceRegistry } from './registry.js';
@@ -12,6 +13,7 @@ import type { HrmDriver, TrainerDriver, TrainerStatus } from './driver.js';
 export class DeviceHub extends EventEmitter<{
   trainer: [TrainerDriver];
   hrm: [HrmDriver];
+  controller: [BleZwiftRideDriver];
   adapter: [AdapterState];
   bleError: [unknown];
 }> {
@@ -20,6 +22,7 @@ export class DeviceHub extends EventEmitter<{
   private readonly ble: boolean;
   private readonly trainerDrivers = new Set<TrainerDriver>();
   private readonly hrmDrivers = new Set<HrmDriver>();
+  private readonly controllerDrivers = new Set<BleZwiftRideDriver>();
   private bleManager: BleManager | undefined;
   private adapter: AdapterState;
   // Status is event-only and drivers emit before later listeners attach, so the
@@ -46,6 +49,7 @@ export class DeviceHub extends EventEmitter<{
         this.bleManager = manager;
         manager.on('trainer', (trainer) => this.registerTrainer(trainer));
         manager.on('hrm', (hrm) => this.registerHrm(hrm));
+        manager.on('controller', (controller) => this.registerController(controller));
         manager.on('adapter', (state) => {
           this.adapter = state;
           this.emit('adapter', state);
@@ -70,10 +74,12 @@ export class DeviceHub extends EventEmitter<{
     const pending: Promise<void>[] = [];
     for (const trainer of this.trainerDrivers) pending.push(trainer.disconnect());
     for (const hrm of this.hrmDrivers) pending.push(hrm.disconnect());
+    for (const controller of this.controllerDrivers) pending.push(controller.disconnect());
     await Promise.allSettled(pending);
     // Drop the tracked sets so a stop/start cycle cannot resurrect stale drivers.
     this.trainerDrivers.clear();
     this.hrmDrivers.clear();
+    this.controllerDrivers.clear();
     this.statuses.clear();
   }
 
@@ -112,5 +118,11 @@ export class DeviceHub extends EventEmitter<{
     hrm.on('status', (status) => this.statuses.set(hrm.id, status));
     this.registry.upsertSeen({ id: hrm.id, kind: 'hrm', name: hrm.name });
     this.emit('hrm', hrm);
+  }
+
+  /** Controllers stay out of the registry and the status map: both describe trainers and straps. */
+  private registerController(controller: BleZwiftRideDriver): void {
+    this.controllerDrivers.add(controller);
+    this.emit('controller', controller);
   }
 }

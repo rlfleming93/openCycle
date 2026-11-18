@@ -25,6 +25,7 @@ import { DeviceRegistry } from './devices/registry.js';
 import { SessionEngine } from './session/engine.js';
 import { attachKeepAwake } from './session/keepAwake.js';
 import { Recorder } from './session/recorder.js';
+import { attachRideControls } from './session/rideControls.js';
 import { openDb } from './storage/db.js';
 import { registerWeb, resolveWebDir } from './web.js';
 
@@ -77,6 +78,17 @@ registerWs(app, ctx);
 // A strap picked for a running session may only wake (and be discovered) after Start.
 hub.on('hrm', (hrm) => engine.attachHrm(hrm));
 attachKeepAwake(engine, (message) => app.log.warn({ message }, 'keep awake'));
+// Zwift Ride handlebar buttons steer the session (bias, pause, skip); the
+// controller is linked only while a session runs. See docs/ble-protocol.md.
+hub.on('controller', (controller) => {
+  app.log.info({ id: controller.id, name: controller.name }, 'controller discovered');
+  controller.on('status', (status) => app.log.info({ id: controller.id, status }, 'controller status'));
+  controller.on('press', (button) => app.log.info({ id: controller.id, button }, 'controller press'));
+});
+attachRideControls(hub, engine, {
+  frameTrainer: process.env.OPENCYCLE_ZWIFT_RIDE_TRAINER || undefined,
+  log: (message) => app.log.info({ message }, 'ride controls'),
+});
 
 // Phase 5: Garmin import/sync + training/plan routes.
 const garmin = new GarminConnector(dataDir, app.log);

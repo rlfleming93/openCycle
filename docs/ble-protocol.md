@@ -6,6 +6,7 @@ Ground truth for the FTMS/HRS codecs and BLE manager. Sources: Bluetooth SIG FTM
 
 - 2× Wahoo KICKR CORE "Zwift One" (CORE gen1 + Zwift Cog single-speed + Zwift Click). NOT CORE 2 (no Wi-Fi).
 - 2× Garmin HRM-Pro-class straps (2 BLE slots + unlimited ANT+ each).
+- 1× Zwift Ride smart frame (two handlebar controllers) on one of the COREs.
 
 ## Services to use / avoid
 
@@ -13,6 +14,7 @@ Ground truth for the FTMS/HRS codecs and BLE manager. Sources: Bluetooth SIG FTM
 |---|---|---|
 | KICKR CORE | FTMS `0x1826` (control + Indoor Bike Data). Optional CPS `0x1818` as backup power/cadence stream | Zwift proprietary `…19ca-4651-86e5-fa29dcdd09d1` (virtual shifting; Zwift-only), Wahoo proprietary `A026E005-0A7D-4AB3-97FA-F1500F9FEB8B` (legacy ERG; fallback only), DFU/firmware services |
 | Garmin HRM | HRS `0x180D` → `0x2A37` notify | ANT+ (no Mac radio) |
+| Zwift Ride, left controller | `FC82` (older firmware `00000001-19ca-…`): plain `RideOn`, keypad notifications | The right controller (its presses arrive through the left one) |
 
 Base 128-bit UUID form: `0000XXXX-0000-1000-8000-00805f9b34fb`.
 
@@ -128,3 +130,28 @@ Worked: `16 96 20 03` = 150 bpm, contact, RR 800/1024 s.
 - One gear, no shifting in ERG (Cog makes this moot).
 - If CP writes fail with insufficient auth/encryption: bond (spec lists Encryption on 0x2AD9); macOS just-works LE usually suffices.
 - Dropout: when the trainer link drops or Indoor Bike Data goes stale (> max(3 ticks, 3 s)), the engine pauses the rider (`pauseReason: 'trainer'`) instead of recording 0 W, and resumes on the next fresh sample, re-sending the ERG target.
+
+## Zwift Ride handlebar controllers
+
+Sources (2026-11-18): Makinolo "Zwift Ride protocol" (2024-07-26, Jan 2025 edit); OpenBikeControl/bikecontrol `lib/bluetooth/devices/zwift/{zwift_ride,zwift_device,constants,zwift_unlock}.dart` and issue #3; cagnulein/qdomyos-zwift `src/zwift_play/abstractZapDevice.h`; Custodia-Admin/velo `docs/devices/zwift-ride-v2.md`; support.zwift.com "Using Your Zwift Ride Controller". Not yet checked against Ryan's Ride.
+
+- **Advert.** Both sides advertise as `Zwift Ride` (older firmware: `Zwift SF2`). Manufacturer data: company `0x094A` (`4a 09`), device type (`08` left, `07` right), then the address's last 2 bytes. Connect to the left one only. A connected controller stops advertising and holds one central: quit Zwift first.
+- **Service** `FC82` (firmware since Jan 2025) or legacy `00000001-19ca-4651-86e5-fa29dcdd09d1`. Characteristics `0000000X-19ca-4651-86e5-fa29dcdd09d1`: `…02` Async (notify: keypad, battery, idle), `…03` Sync RX (write: commands), `…04` Sync TX (indicate: replies).
+- **Handshake.** No encryption (unlike Play / Click v1). Subscribe Async + Sync TX, write ASCII `RideOn` (`52 69 64 65 4f 6e`) to Sync RX; the controller echoes `RideOn` on Sync TX. No app keepalive: the idle controller sends `15` (idle) and `19` (battery, `19 08 55` = 85 %).
+- **Keypad** `23` + protobuf `RideKeyPadStatus`: field 1 `ButtonMap` uint32, active-low (a cleared bit is a held button); every frame repeats the held buttons, so act on rising edges only. Paddles ZL/ZR are {location 0/1, sint32 value −100…100} in one of three shapes: field 2 → repeated field 1 (Makinolo's capture), field 2 flat, or repeated field 3 (BikeControl's proto).
+
+| Bit | Button | Bit | Button |
+|---|---|---|---|
+| `0x0001` | D-pad left | `0x0100` | LS1, left shifter upper |
+| `0x0002` | D-pad up | `0x0200` | LS2, left shifter lower |
+| `0x0004` | D-pad right | `0x0400` | LB, left drop button |
+| `0x0008` | D-pad down | `0x0800` | Left power |
+| `0x0010` | A | `0x1000` | RS1, right shifter upper |
+| `0x0020` | B | `0x2000` | RS2, right shifter lower |
+| `0x0040` | Y | `0x4000` | RB, right drop button |
+| `0x0080` | Z | `0x8000` | Right power |
+
+Bits as measured on a Ride (bikecontrol#3, 2025-03-30). Makinolo's `.proto` (Z = `0x100`, every later button one bit up) is wrong. Worked vector: `23 08 fe ff ff ff 0f 12 18 0a 04 08 00 10 00 …` = D-pad left held, paddles at rest.
+
+- **Daily lock (firmware ≥ 1.3, "Ride V2").** The Zwift service is hidden from GATT (or goes quiet) until the Zwift app unlocks it: open Zwift (free account), connect the Ride, press a button, quit Zwift; it then works elsewhere for about 24 h. The driver reads firmware `0x2A26` and names it in that error.
+- **openCycle map** (`RIDE_BUTTON_ACTIONS` in `apps/server/src/session/rideControls.ts`): like Zwift's shifting, either right shifter button raises the ERG bias 1 % and either left one lowers it 1 %; A pause/resume, Y twice within 1.5 s skips the step. No button ends a ride. With several riders the presses go to the rider whose trainer matches `OPENCYCLE_ZWIFT_RIDE_TRAINER` (device id or advertised name); without a match they are dropped and logged once. The server links the controller only while a session runs (first rider joins → connect, session ends → disconnect), so Zwift can have it the rest of the time.

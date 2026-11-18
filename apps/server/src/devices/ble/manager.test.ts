@@ -557,13 +557,13 @@ describe('BleHrmDriver', () => {
 // BleManager
 
 describe('BleManager', () => {
-  it('scans for FTMS + HRS services without duplicates and emits state', async () => {
+  it('scans for FTMS, HRS and Zwift controller services without duplicates and emits state', async () => {
     const noble = new FakeNoble();
     const manager = new BleManager({ noble: noble as unknown as Noble });
     const states: string[] = [];
     manager.on('state', (s) => states.push(s));
     await manager.startScan();
-    expect(noble.scanning).toEqual(['1826', '180d']);
+    expect(noble.scanning).toEqual(['1826', '180d', 'fc82', '0000000119ca465186e5fa29dcdd09d1']);
     expect(noble.allowDuplicates).toBe(false);
     await manager.stopScan();
     expect(noble.scanning).toBeNull();
@@ -588,7 +588,7 @@ describe('BleManager', () => {
     await tick();
 
     expect(adapters).toEqual(['poweredOn', 'poweredOn']);
-    expect(noble.scanning).toEqual(['1826', '180d']);
+    expect(noble.scanning).toEqual(['1826', '180d', 'fc82', '0000000119ca465186e5fa29dcdd09d1']);
     expect(noble.scanStarts).toBe(1);
   });
 
